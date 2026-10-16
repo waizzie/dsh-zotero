@@ -1,0 +1,18 @@
+# dsh-zotero bundle patch
+#
+# 本包是 host-only bundle：一条 insert 把插件挂到当前 profile。
+# 安装（二选一）：
+#   dsh plugin --profile web add <本目录绝对路径>
+#   或在 DSH 的插件页安装本目录
+- insert:
+    - id: dsh-zotero
+      name: 'dsh-zotero'
+      config:
+        # Zotero 本地 API 基址（默认端口 23119，由 Zotero 桌面端提供）
+        baseUrl: 'http://127.0.0.1:23119'
+        # 允许把摘录写回 Zotero（子笔记）。默认关闭；开启后仍需在 Zotero 弹出授权窗时点 Always Allow。
+        allowWrite: false
+        # 出现在 Zotero 授权窗与凭据记录里的应用名
+        appName: 'DSH Zotero'
+        # 单次工具返回的全文最大字符数（超出会截断并提示）
+        maxFulltextChars: 20000

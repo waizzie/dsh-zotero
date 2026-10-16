@@ -1,0 +1,59 @@
+{
+  "name": "dsh-zotero",
+  "version": "0.2.1",
+  "type": "module",
+  "description": "Zotero literature panel and model tools for DeepSeek Harness.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/waizzie/dsh-zotero.git"
+  },
+  "homepage": "https://github.com/waizzie/dsh-zotero",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "zotero",
+    "literature",
+    "pdfjs"
+  ],
+  "author": "waizzie",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "icon": "./icon.svg",
+  "meta": {
+    "title": "Zotero 文献",
+    "description": "在侧边栏浏览 Zotero 文献、标注与笔记，并让模型检索条目、标注、全文与题录。"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-better-sidebar"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md"
+  ],
+  "dependencies": {
+    "pdfjs-dist": "^6.3.289"
+  },
+  "peerDependencies": {
+    "dsh-better-sidebar": ">=0.24.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "//": "pdfjs-dist 只用于 Host 侧把 pdf.js 资源（pdf.mjs / worker / cmaps / 标准字体）经 /dsh-zotero/vendor 提供给面板，用于在自绘 PDF 上叠加 Zotero 标注。"
+}
