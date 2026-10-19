@@ -115,7 +115,7 @@ GET /api/users/0/items/<顶层key>/children?itemType=attachment  → 返回附�
 ### 3.5 附件本地路径
 
 ```
-GET /api/users/0/items/<附件key>/file/view/url → 200 text/plain "file:///C:/Users/…/storage/<key>/<文件名>"
+GET /api/users/0/items/<附件key>/file/view/url → 200 text/plain "file://<用户数据目录>/storage/<key>/<文件名>"
 GET /api/users/0/items/<附件key>/file/view     → 302 Location: file://…
 ```
 附件 JSON **不含路径字段**（只有 `filename`/`contentType`/`linkMode`）；要绝对路径就取上面这个 URL。【实测】+【文档】
