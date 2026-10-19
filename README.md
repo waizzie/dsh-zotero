@@ -94,7 +94,15 @@ Zotero 的集合成员**包含父条目的子附件与笔记**（实测某分类
 
 1. DSH 侧**可选**启用 **`dsh-better-sidebar`**（提供右侧栏面板宿主）。
    - 未启用时：文献工具照常工作；面板不出现，`zotero_status` 的 `panel.attached = false` 会给出原因。
-   - 版本兼容由运行时能力清单门控（`service.features`）；实测通过 `0.24.1`。
+   - **版本要与 DSH 匹配**（错配时侧栏会 `pending`，面板不出现，但本插件不受影响）：
+
+     | DSH | better-sidebar | 侧栏要的服务 |
+     |---|---|---|
+     | `0.2.1-rc.x`（当前实测） | **`0.28.0`** | `webServer, sessions, connection, tools` |
+     | `0.2.0-rc.x` 及更早 | `0.24.1` | `webServer, sessions, webRuntime, tools` |
+
+     排查：启动日志出现 `pending (waiting for service: …)` 时，按括号里的服务名对照上表换版本；DSH 升级后 `webRuntime` 已被移除，旧版侧栏会永久 pending。
+   - 运行时能力用 `service.features` 门控（`registerTab` 必需）；面板挂不上时先看 `zotero_status` 的 `panel.reason`。
 2. 本机安装了 **Zotero 7+ 桌面端**（实测 10.0.5），并保持**运行中**。
 3. Zotero 中开启本地 API：**设置 → 高级 → 勾选「允许其他应用程序与 Zotero 通信」**。
    - 未开启时所有工具会返回可读的 403 提示。
