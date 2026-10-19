@@ -32,6 +32,8 @@ export function apply(ctx, config = {}) {
 
   const keyStore = createKeyStore(ctx);
   const sessionState = createSessionState();
+  // 面板挂载诊断：client 半通过 /api/panel.report 写入，status 与 zotero_status 回显
+  const panelState = { last: null };
   const client = createZoteroClient({
     baseUrl: settings.baseUrl,
     appName: settings.appName,
@@ -45,7 +47,7 @@ export function apply(ctx, config = {}) {
 
   // 1) 工具（模型可见）
   ctx.effect(() => {
-    const tools = createTools({ client, sessionState, settings, keyStore, log });
+    const tools = createTools({ client, sessionState, settings, keyStore, panelState, log });
     const disposers = tools.map((definition) => ctx.tools.register(definition));
     log(`已注册 ${disposers.length} 个工具（写回${settings.allowWrite ? '已开启' : '关闭'}）`);
     return () => { for (const dispose of disposers) { try { dispose(); } catch { /* noop */ } } };
@@ -59,7 +61,7 @@ export function apply(ctx, config = {}) {
   }), 'dsh-zotero: prompt section');
 
   // 3) 面板路由
-  ctx.effect(() => registerRoutes(ctx, { client, sessionState, settings, keyStore, log }), 'dsh-zotero: routes');
+  ctx.effect(() => registerRoutes(ctx, { client, sessionState, settings, keyStore, panelState, log }), 'dsh-zotero: routes');
 
   log(`已激活（baseUrl=${settings.baseUrl}，写回=${settings.allowWrite}）`);
 }

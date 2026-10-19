@@ -9,6 +9,8 @@
 
 面板通过 `dsh-better-sidebar` 的 `ctx.betterSidebar.registerTab()` 注册，渲染在 **DSH 原生右侧栏**（tab 条 / 分栏 / 会话级持久化由插件与宿主提供）。
 
+> **`dsh-better-sidebar` 是可选依赖**（`peerDependenciesMeta.optional`）。本插件**不硬注入**它的客户端模块，插件体也不 `inject` 它的服务：运行时动态解析 `ctx.get('betterSidebar')`，缺失或异常只降级不抛错；服务**出现或被替换**时由 cordis 的 `ctx.inject` 自动重挂。因此它升级/降级/更新失败都**不会**拖垮本插件——11 个工具在任何情况下都可用。面板挂不上时，`zotero_status` 会返回 `panel: { attached, reason, serviceVersion, features }` 说明原因。
+
 打开方式：右侧栏 **`+` → Zotero**（或已有 tab 时点 Zotero 图标）。
 
 界面布局：
@@ -83,14 +85,16 @@ Zotero 的集合成员**包含父条目的子附件与笔记**（实测某分类
 
 | 现象 | 处理 |
 |---|---|
-| 右侧栏 `+` 菜单里没有 Zotero | 确认 `dsh-better-sidebar` 处于启用状态；**改了 `package.json`/`client.js` 后需要重启 DSH**（client 条目在启动时装配） |
+| 右侧栏 `+` 菜单里没有 Zotero | 面板依赖的可选插件 `dsh-better-sidebar` 未启用、版本不兼容或自身加载失败。**此时 11 个工具仍可用**；用 `zotero_status` 看 `panel.reason` 定位原因，装好/修好后**无需改本插件**，服务一出现会自动重挂（改了 `package.json`/`client.js` 才需要重启 DSH） |
 | 面板显示「未连接」 | 按上面的前置条件检查 Zotero 是否运行、本地 API 是否开启 |
 | 点「插入输入框」提示已复制 | 该 DSH 版本的 composer 接口不可用，退化为剪贴板，属于预期降级 |
 
 
 ## 前置条件
 
-1. DSH 侧已启用 **`dsh-better-sidebar`**（本插件的面板注册在它提供的右侧栏上）。
+1. DSH 侧**可选**启用 **`dsh-better-sidebar`**（提供右侧栏面板宿主）。
+   - 未启用时：文献工具照常工作；面板不出现，`zotero_status` 的 `panel.attached = false` 会给出原因。
+   - 版本兼容由运行时能力清单门控（`service.features`）；实测通过 `0.24.1`。
 2. 本机安装了 **Zotero 7+ 桌面端**（实测 10.0.5），并保持**运行中**。
 3. Zotero 中开启本地 API：**设置 → 高级 → 勾选「允许其他应用程序与 Zotero 通信」**。
    - 未开启时所有工具会返回可读的 403 提示。
@@ -99,13 +103,13 @@ Zotero 的集合成员**包含父条目的子附件与笔记**（实测某分类
 ## 安装
 
 ```powershell
-# 1) 先装面板承载者（客户端半注入它，缺它右侧栏注册不上）
+# 1) （可选）面板承载者：只影响侧边栏面板；不装时文献工具照常工作
 dsh plugin --profile web add dsh-better-sidebar
 
 # 2) 装本插件（任选一条）
 dsh plugin --profile web add "github:waizzie/dsh-zotero"           # 跟随 main
-dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.1"    # 锁 tag
-dsh plugin --profile web add "https://github.com/waizzie/dsh-zotero/releases/download/v0.2.1/dsh-zotero-0.2.1.tgz"
+dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.2"    # 锁 tag
+dsh plugin --profile web add "https://github.com/waizzie/dsh-zotero/releases/download/v0.2.2/dsh-zotero-0.2.2.tgz"
 
 # 3) 重启 dsh web（host 半改动只在重启后生效）
 ```

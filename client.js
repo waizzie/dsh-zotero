@@ -47,6 +47,109 @@ window.__ModuleLoader__.load({
       return json.value;
     }
 
+    // ─────────────── 侧栏宿主桥接（dsh-better-sidebar 是**可选**依赖） ───────────────
+    //
+    // 为什么这么写：better-sidebar 曾经是硬依赖（package.json 的 dsh.client.inject +
+    // 插件级 inject: ['betterSidebar']）。DSH 的 client-modules 会先把被注入模块拉进图里，
+    // 它一旦加载失败就把错误级联成 "dsh-zotero not loaded because dependency
+    // dsh-better-sidebar failed" —— 表现就是"better-sidebar 一更新，本插件打不开"。
+    // 现在改成：不硬 inject，运行时动态取服务；服务缺失/异常只降级不抛错；
+    // 用 cordis 的 ctx.inject 在服务（重新）出现时自动重挂，升级/降级后无需重启。
+    const SIDEBAR_SERVICE_NAMES = ['betterSidebar'];
+
+    /** 最近一次解析到的侧栏服务（面板里「DSH 预览」等能力用它，不再直接摸 ctx）。 */
+    const sidebarRef = { current: null };
+
+    /** 最近一次挂载诊断，供 /dsh-zotero/api/panel.report 上报。 */
+    let lastAttach = { attached: false, reason: '尚未初始化' };
+
+    const featureFlag = (service, name) => {
+      const list = service?.features;
+      if (!Array.isArray(list)) return null;          // 老版本没有能力清单 → 不做门控
+      return list.includes(name);
+    };
+
+    /** 把面板挂到侧栏服务上；任何异常都只记诊断，绝不上抛。 */
+    function attachSidebar(service, scopedCtx, descriptor, opts = {}) {
+      const label = opts.label ?? 'dsh-zotero: library tab';
+      if (!service || typeof service.registerTab !== 'function') {
+        lastAttach = { attached: false, reason: '侧栏服务不可用（缺少 registerTab）', ...opts.meta };
+        return { attached: false, reason: lastAttach.reason };
+      }
+      try {
+        const register = () => service.registerTab(descriptor);
+        const ctx = scopedCtx ?? {};
+        const disposer = typeof ctx.effect === 'function' ? ctx.effect(register, label) : register();
+        sidebarRef.current = service;
+        lastAttach = {
+          attached: true,
+          reason: '',
+          serviceVersion: typeof service.version === 'string' ? service.version : null,
+          features: Array.isArray(service.features) ? [...service.features] : null,
+          ...opts.meta,
+        };
+        return { attached: true, disposer };
+      } catch (e) {
+        sidebarRef.current = null;
+        lastAttach = { attached: false, reason: `注册失败：${e?.message ?? String(e)}`, ...opts.meta };
+        return { attached: false, reason: lastAttach.reason };
+      }
+    }
+
+    /**
+     * 解析侧栏服务并挂载面板。
+     * - 服务已在 → 立即挂；
+     * - 还没出现 → ctx.inject 等待；服务变化时 cordis 会卸载并重跑回调 → 自动重挂。
+     */
+    function resolveSidebarService(ctx, descriptor, opts = {}) {
+      const { onResult } = opts;
+      const report = (result) => { try { onResult?.(result, lastAttach); } catch { /* noop */ } };
+
+      const attachNow = (service, scopedCtx) => {
+        const result = attachSidebar(service, scopedCtx, descriptor, opts);
+        report(result);
+        return result;
+      };
+
+      try {
+        const existing = typeof ctx?.get === 'function' ? ctx.get(SIDEBAR_SERVICE_NAMES[0]) : undefined;
+        if (existing) return attachNow(existing, ctx);
+      } catch (e) {
+        lastAttach = { attached: false, reason: `读取服务失败：${e?.message ?? String(e)}` };
+      }
+
+      try {
+        if (typeof ctx?.inject !== 'function') {
+          lastAttach = { attached: false, reason: '宿主不支持动态服务注入（ctx.inject 缺失）' };
+          report({ attached: false, reason: lastAttach.reason });
+          return { attached: false, reason: lastAttach.reason };
+        }
+        // 服务出现/变化时回调重跑（cordis 语义：回调随依赖变化卸载再执行）
+        ctx.inject(SIDEBAR_SERVICE_NAMES, (scoped) => {
+          const service = (typeof scoped?.get === 'function' ? scoped.get(SIDEBAR_SERVICE_NAMES[0]) : undefined) ?? scoped?.[SIDEBAR_SERVICE_NAMES[0]];
+          attachNow(service, scoped);
+        });
+        lastAttach = { attached: false, reason: '等待侧栏服务出现' };
+        report({ attached: false, reason: lastAttach.reason });
+        return { attached: false, pending: true };
+      } catch (e) {
+        lastAttach = { attached: false, reason: `等待服务失败：${e?.message ?? String(e)}` };
+        report({ attached: false, reason: lastAttach.reason });
+        return { attached: false, reason: lastAttach.reason };
+      }
+    }
+
+    /** 把挂载诊断上报给 Host（面板挂不上时，模型/用户都能看到原因）。 */
+    function reportPanelState(payload) {
+      try {
+        void fetch(`${API}panel.report`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload ?? {}),
+        }).catch(() => {});
+      } catch { /* noop */ }
+    }
+
     const creatorLine = (item) => {
       const c = item?.creators ?? [];
       if (c.length === 0) return '佚名';
@@ -781,8 +884,15 @@ window.__ModuleLoader__.load({
       };
 
       const openInHostPreview = async (att) => {
-        const service = ctx.betterSidebar;
-        if (!service?.openFile) { setFlash('当前 better-sidebar 不支持 openFile'); return; }
+        const service = sidebarRef.current;
+        if (!service) {
+          setFlash('侧栏服务不可用（dsh-better-sidebar 未启用或未就绪），请用「新窗口」打开');
+          return;
+        }
+        if (typeof service.openFile !== 'function' || featureFlag(service, 'openFile') === false) {
+          setFlash('当前侧栏版本不支持 openFile，请用「新窗口」或升级 dsh-better-sidebar');
+          return;
+        }
         const info = await call('fileinfo', { key: att.key }).catch(() => null);
         if (!info?.path || !info.exists) { setFlash('拿不到该附件的本地路径'); return; }
         try {
@@ -1033,22 +1143,38 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /**
+     * 面板的 tab 描述符：只用 better-sidebar 的稳定字段
+     * （id / title / description / icon / order / single / component）。
+     */
+    function buildTabDescriptor() {
+      return {
+        id: 'dsh-zotero:library',
+        title: () => 'Zotero',
+        description: () => '左列分类、行内展开操作，支持面板内阅读 PDF 并引用到会话',
+        icon: (size) => ZoteroIcon(size),
+        order: 40,
+        single: true,
+        component: ZoteroPanel,
+      };
+    }
+
     return {
-      inject: ['betterSidebar'],
+      // 不声明任何硬服务依赖：better-sidebar 缺失/改名/更新失败都不该牵连本插件
+      inject: [],
       apply(ctx) {
-        const service = ctx.betterSidebar;
-        if (!service) return;
-        ctx.effect(() => service.registerTab({
-          id: 'dsh-zotero:library',
-          title: () => 'Zotero',
-          description: () => '左列分类、行内展开操作，支持面板内阅读 PDF 并引用到会话',
-          icon: (size) => ZoteroIcon(size),
-          order: 40,
-          single: true,
-          component: ZoteroPanel,
-        }), 'dsh-zotero: library tab');
+        resolveSidebarService(ctx, buildTabDescriptor(), {
+          label: 'dsh-zotero: library tab',
+          onResult: (_result, attach) => reportPanelState(attach),
+        });
       },
-      __test: { buildCollectionTree, sizeText, creatorLine, typeLabel, ZoteroPanel, FILE, loadPanelState, savePanelState, stateKeyOf, withAlpha, zoteroAnnotationLink, overlayBoxes, computeOverlay, rectToViewportBox, PdfViewer, PdfPage },
+      __test: {
+        buildCollectionTree, sizeText, creatorLine, typeLabel, ZoteroPanel, FILE,
+        loadPanelState, savePanelState, stateKeyOf, withAlpha, zoteroAnnotationLink,
+        overlayBoxes, computeOverlay, rectToViewportBox, PdfViewer, PdfPage,
+        buildTabDescriptor, resolveSidebarService, attachSidebar, featureFlag,
+        SIDEBAR_SERVICE_NAMES, sidebarRef, lastAttach: () => lastAttach,
+      },
     };
   },
 });
