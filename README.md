@@ -137,14 +137,15 @@ rect = [x1, baseline − 0.25·fs, x2, baseline + 1.0·fs]     // Zotero 用 1.2
 # 1) （可选）面板承载者：只影响侧边栏面板；不装时文献工具照常工作
 dsh plugin --profile web add dsh-better-sidebar
 
-# 2) 装本插件
-dsh plugin --profile web add "github:waizzie/dsh-zotero"           # 跟随 main（含最新功能与修复）
+# 2) 装本插件（任选一条）
+dsh plugin --profile web add "github:waizzie/dsh-zotero"           # 跟随 main
+dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.3"    # 锁 tag（推荐）
 
 # 3) 重启 dsh web（host 半改动只在重启后生效）
 ```
 
 > ⚠️ **不要安装 `v0.2.2` 及更早的 tag。** 那些版本有会让 DSH **起不来**的凭据键 bug（见下方
-> 「已知致命问题」），修复目前只在 `main` 上，尚未打新 tag。
+> 「已知致命问题」），`v0.2.2` 已从远端撤下；`v0.2.3` 起已修复。
 
 > 目前**没有带二进制资产的 Release**，所以不提供 `.tgz` 直链。需要离线分发时，自行打包后从本地安装
 > （文件名以 `npm pack` 的输出为准）：
