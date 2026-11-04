@@ -727,6 +727,19 @@ window.__ModuleLoader__.load({
         return s;
       }, [run]);
 
+      /** 写回总开关：主机侧会立即生效并持久化到 profile 配置（重启后仍生效）。 */
+      const toggleWrite = React.useCallback(async () => {
+        const next = status?.writeEnabled !== true;
+        const v = await run(() => call('write', { enabled: next }));
+        if (!v) return;
+        setStatus((s) => ({ ...(s ?? {}), writeEnabled: v.writeEnabled }));
+        if (v.persisted === false) {
+          setFlash(`写回已${v.writeEnabled ? '开启' : '关闭'}（仅本次运行生效：${v.warning ?? '未知原因'}）`);
+        } else {
+          setFlash(`写回已${v.writeEnabled ? '开启' : '关闭'}（已保存，重启后仍生效）`);
+        }
+      }, [run, status?.writeEnabled]);
+
       // 挂载 / 面板重新可见：按上次状态恢复现场（分类 → 检索 → 最近修改）
       React.useEffect(() => {
         if (!visible) return undefined;
@@ -1051,8 +1064,17 @@ window.__ModuleLoader__.load({
           h('span', { key: 'dot', className: `dz-dot ${connected ? 'on' : status ? 'off' : ''}` }),
           h('span', { key: 'st', className: 'dz-status', title: status?.message ?? '' },
             connected
-              ? `Zotero ${status.zoteroVersion ?? ''} · 库版本 ${status.libraryVersion ?? '?'} · 写回${status.writeEnabled ? '开' : '关'}`
+              ? `Zotero ${status.zoteroVersion ?? ''} · 库版本 ${status.libraryVersion ?? '?'}`
               : (status ? (status.message ?? '未连接') : '正在检查 Zotero…')),
+          h('button', {
+            key: 'wr',
+            className: `dz-btn dz-wr ${status?.writeEnabled ? 'primary' : ''}`,
+            disabled: busy || !connected,
+            title: status?.writeEnabled
+              ? '写回已开启：模型可把讨论小结写成子笔记（首次写入时 Zotero 会弹授权窗，请点 Always Allow）。点击关闭。'
+              : '写回已关闭：点击开启后，模型才能把讨论小结写成 Zotero 子笔记。',
+            onClick: toggleWrite,
+          }, status?.writeEnabled ? '写回：开' : '写回：关'),
           h('button', { key: 'refresh', className: 'dz-btn', disabled: busy, onClick: async () => { const s = await loadStatus(); if (s?.connected) await loadRecent(); } }, '刷新'),
         ]),
 
