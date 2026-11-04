@@ -137,12 +137,14 @@ rect = [x1, baseline − 0.25·fs, x2, baseline + 1.0·fs]     // Zotero 用 1.2
 # 1) （可选）面板承载者：只影响侧边栏面板；不装时文献工具照常工作
 dsh plugin --profile web add dsh-better-sidebar
 
-# 2) 装本插件（任选一条）
-dsh plugin --profile web add "github:waizzie/dsh-zotero"           # 跟随 main（含最新功能）
-dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.2"    # 锁 tag（0.3.0 发布前的最新 tag）
+# 2) 装本插件
+dsh plugin --profile web add "github:waizzie/dsh-zotero"           # 跟随 main（含最新功能与修复）
 
 # 3) 重启 dsh web（host 半改动只在重启后生效）
 ```
+
+> ⚠️ **不要安装 `v0.2.2` 及更早的 tag。** 那些版本有会让 DSH **起不来**的凭据键 bug（见下方
+> 「已知致命问题」），修复目前只在 `main` 上，尚未打新 tag。
 
 > 目前**没有带二进制资产的 Release**，所以不提供 `.tgz` 直链。需要离线分发时，自行打包后从本地安装
 > （文件名以 `npm pack` 的输出为准）：
@@ -156,6 +158,33 @@ dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.2"    # 锁 tag（0
 > （面板用它把 Zotero 标注叠加在自绘 PDF 上；缺失时自动退回原生 `<iframe>` 阅读器）。
 > 只有**本地路径 `link:` 安装**例外——DSH 不会替被链接的包装依赖，需先在该包目录内执行一次
 > `npm install`（或 `pnpm add pdfjs-dist@6.3.289`），再用 `dsh plugin add` 指向它。
+
+## ⚠️ 已知致命问题：≤ 0.2.2 会让 DSH 起不来
+
+**现象**：写入过一次 Zotero 授权之后，**下一次启动 DSH** 直接 `dsh: startup failed`——`credentials`
+插件激活失败，依赖它的 `connection`、`deepseek-account`、`better-sidebar` 等 12 个插件全部 pending。
+普通启动每次必挂，只有 safe mode 能进。日志关键行：
+
+```
+credential key "zotero-local-api-key" must be "<scope>/<id>"
+```
+
+**根因**：旧版 `lib/key-store.js` 把凭据记录键写成了 `zotero-local-api-key`。DSH 的凭据记录键必须是
+`<scope>/<id>`，且两段各自匹配 `/^[a-z][a-z0-9-]*$/`（`@deepseek-ai/dsh-credentials` 的
+`KEY_SEGMENT_PATTERN`）。DSH 的**写路径**只校验 payload、不校验键格式，所以写入当时毫无异常；
+**读路径**（`parseRecords()` → `parseCredentialKey()`）要到下次启动才抛错。
+
+**已修复**：`main` 上键已改为 `dsh-zotero/local-api-key`，并在模块加载时做格式自检——写错会立刻
+报错，而不是先落盘、等下次开机才炸。回归测试：`node spike/key-store-test.mjs`。
+
+**已经中招怎么办**（**不需要** factory reset）：
+
+1. 编辑 `%USERPROFILE%\.dsh\.credentials.yaml`；
+2. 在 `records:` 下删掉整个 `zotero-local-api-key:` 块（连带它的 `kind` / `payload` 子行）；
+3. 重新启动 DSH，再授权一次（弹窗点 Always Allow），密钥会以新键名重新写入。
+
+> 这条来自实测事故（2026-11-04）：写入正常、关机正常，重启才炸；当时未定位到根因，做了 factory
+> reset，整个旧 `~/.dsh` 被归档到 `~/.dsh/recovery/`（数据没丢，但配置全没了）。
 
 ## 配置
 
@@ -184,7 +213,7 @@ dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.2"    # 锁 tag（0
 - 关掉开关立即阻断后续写入；已写入 Zotero 的笔记不受影响。
 - **配置行会随开关消失**：`configEditor.edit()` 在新值与继承层（bundle 默认）完全相等时会删掉该 profile 补丁行。关掉开关时 `allowWrite:false` 恰等于默认值，于是 `- id: dsh-zotero` 整行（连同注释）被移除；再开回来会重新写入。功能上无影响（回落的就是同一套默认值），但别指望那一行一直留在 `cordis.patch.yml` 里。
 
-写授权：首次写回时 Zotero 会弹窗 → 请点 **Always Allow**（否则每次写入都会再弹一次）。密钥存在 DSH 凭据服务的记录 `zotero-local-api-key`，不进配置文件。撤销：Zotero 设置 → 高级 → Clear Write Authorizations。
+写授权：首次写回时 Zotero 会弹窗 → 请点 **Always Allow**（否则每次写入都会再弹一次）。密钥存在 DSH 凭据服务的记录 `dsh-zotero/local-api-key`，不进配置文件。撤销：Zotero 设置 → 高级 → Clear Write Authorizations。
 
 ## 模型工具
 
@@ -228,11 +257,13 @@ Host 半注册同源路由（都带 loopback 信任围栏）：
 node --check index.js client.js lib\*.js                                # 语法检查
 node -e "import('./index.js').then(m=>console.log(m.name, m.inject))"   # 装载自检
 node spike\toggle-test.mjs                                              # 写回开关（离线，假 configEditor）
+node spike\key-store-test.mjs                                           # 凭据记录键格式（防"下次启动炸"）
 node spike\annotation-test.mjs                                          # 高亮几何 + payload 结构
-npm pack --dry-run                                                      # 打包清单（应 15 个文件，不含 node_modules）
+npm pack --dry-run                                                      # 打包清单（应 15 个文件，不含 node_modules/spike/docs）
 ```
 
 - `spike/toggle-test.mjs` 全离线：用假的 `configEditor` 覆盖「改运行时 settings + 经 Loader 落 profile 补丁」两条路径。
+- `spike/key-store-test.mjs` 全离线：断言凭据记录键符合 DSH 的 `<scope>/<id>` grammar，并把旧值 `zotero-local-api-key` 钉成「必须被拒」。对应 2026-11-04 的整机启动事故。
 - `spike/annotation-test.mjs` 的**几何断言**需要真值文件 `spike/cases.local.json`——**不入库**，因为它含真实附件 key 与论文原文句子。缺该文件时自动跳过几何部分，只跑 payload 结构断言；准备方法见 `spike/cases.example.json`。
 
 > 其余开发期套件（工具注册契约 / Host 路由 / Client 渲染）不随本仓库分发。`spike/` 与 `docs/` 也不进 npm 包（`files` 白名单不含它们）。
@@ -256,6 +287,7 @@ npm pack --dry-run                                                      # 打包
 
 | 现象 | 处理 |
 |---|---|
+| **DSH 启动失败**，日志报 `credential key "…" must be "<scope>/<id>"` | 装过 ≤0.2.2 且写过授权。按「已知致命问题」删掉 `~/.dsh/.credentials.yaml` 里那条旧键记录即可启动，**不需要** factory reset |
 | 工具报 `Zotero 未运行或本地 API 不可达` | 启动 Zotero；确认端口 23119 未被占用 |
 | 工具报 `本地 API 未开启` | 设置 → 高级 → 允许其他应用程序通信 |
 | 写入报 `写回当前被关闭` | 点面板头部的「写回：关」按钮开启（或把配置 `allowWrite` 设为 `true`） |

@@ -169,7 +169,7 @@ Zotero-Server-ID: <serverID>            ← 必须（缺失 428）
 - 用户弹窗可选 Allow / **Always Allow** / Deny。`remember=true`（Always Allow）→ key 可长期复用；`remember=false` → **每个写请求消耗一个 key**（消耗发生在鉴权阶段，**即使写失败也消耗**），即每次写入都要弹窗。【文档】+【源码】
 - Deny → `403 {"denied":true}`；弹窗类请求限 5 次/分钟 → `429` + `Retry-After`。【文档】
 - key 明文存 `<profile>/localAPIKeys.json`，不绑定库、不限作用域；用户可在设置里一次性撤销。【源码】
-- **实现要求**：首次引导用户点 Always Allow，key 存 `ctx.credentials.modifyRecord('zotero-local-api-key', …)`；遇到 401 自动重新授权一次；遇到 429 退避并提示。
+- **实现要求**：首次引导用户点 Always Allow，key 存 `ctx.credentials.modifyRecord('dsh-zotero/local-api-key', …)`；遇到 401 自动重新授权一次；遇到 429 退避并提示。
 
 **实测**：`remember=true` 后 20+ 次写请求零弹窗。
 
@@ -395,7 +395,7 @@ zotero-plugin/
 | HTTP 路由 | `ctx.effect(() => ctx.webServer.register({kind:'prefix', path:'/dsh-zotero/api', handler}))` | 同源 + 信任围栏；供面板调用；密钥不进页面 |
 | 模型工具 | `ctx.tools.register(defineTool({...}))` 或**普通对象** | **实测契约**：`register()` 只做 `name` + `output{schema, render}` + `timeoutMs` 校验，`parameters` **原样透传给模型、不做编译** → 因此 `parameters` 必须是**带根 `type:'object'` 的完整 JSON Schema**（`{type:'object', additionalProperties:false, properties:{…}, required:[…]}`）。只有 `defineTool()` 才接受"属性表"简写；不导入 `defineTool` 的零依赖插件必须自己写成完整 Schema，否则模型侧报 `schema must be a JSON Schema of 'type: "object"', got 'type: null'`。 |
 | 提示词 | `ctx.systemPrompt.section({name:'plugin:zotero', order, text})` | 说明工具用法、引用键约定（`[@key]`）、**禁止编造题录**、写前确认 |
-| 凭据 | `ctx.credentials.modifyRecord('zotero-local-api-key', …)` / `readRecord` | 存本地 API key |
+| 凭据 | `ctx.credentials.modifyRecord('dsh-zotero/local-api-key', …)` / `readRecord` | 存本地 API key |
 | 会话状态 | Host 内存 `Map<sessionId, {selection, pool}>` | 面板选中项与文献池 |
 | 注入会话 | `ctx.agents.get(sessionId).inject(...)` | "发送到会话" |
 | 依赖声明 | `export const inject = ['webServer','tools','systemPrompt','credentials','agents']` | 可选服务用 `ctx.inject([...])` |

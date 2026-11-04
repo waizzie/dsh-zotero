@@ -138,7 +138,7 @@
 - 验收：会话里"检索某主题 → 读标注 → 给 APA 引用"，人工与 Zotero 对照。
 
 ### Phase 2 — 授权与回写（G1-b）
-- 授权：Host 侧 `POST /api/local/authorize`；key 用 `ctx.credentials.modifyRecord('zotero-local-api-key', …)`（`kind:'grant'`）持久化，`describeRecord` 报状态（永不回显值）；401 自动重授权重试一次；429 指数退避并提示选「Always Allow」。
+- 授权：Host 侧 `POST /api/local/authorize`；key 用 `ctx.credentials.modifyRecord('dsh-zotero/local-api-key', …)`（`kind:'grant'`）持久化，`describeRecord` 报状态（永不回显值）；401 自动重授权重试一次；429 指数退避并提示选「Always Allow」。
 - 写幂等：`Zotero-Write-Token`（32 位随机，本地缓存 12h 内存）；412 时重取 version 再试。
 - 通道：子笔记（保证可行）+ 标注（Phase 0 结论）。
 - UI：每个写操作 = 显式按钮 + 预写 JSON 预览 + 结果回执。
@@ -170,7 +170,7 @@
 |---|---|---|
 | 面板承载面 | ✅ **A：接入 `dsh-better-sidebar` tab**（注册即进 DSH 原生右侧栏，白拿 tab 条/分栏/会话级持久化/i18n/设置页）；`ctx.betterSidebar` 缺失时回退 C（`main` + `sidebar.panellist` 主面板页） | Phase 0 调研 + 你已确认 |
 | 回写通道 | ✅ **笔记 + 高亮/下划线都要**（两者均已实测可行）；**image/ink 降级为笔记**（可写但不渲染） | Phase 0 T4/T5/T5.11 |
-| 密钥存储 | `ctx.credentials` 记录（`zotero-local-api-key`）；引导用户点一次 Always Allow | Phase 0 T3 |
+| 密钥存储 | `ctx.credentials` 记录（`dsh-zotero/local-api-key`）；引导用户点一次 Always Allow | Phase 0 T3 |
 | 大库策略 | 搜索优先 + 强制 `limit`；只缓存"最近/文献池/当前会话"；**所有状态判断走单条直读**（聚合不可信） | Phase 0 T6 + 数据审计 |
 | 写安全 | `Config.allowWrite` 默认关 + dry-run 预览 + 显式确认；回收范围只限本会话登记的 key | Phase 0 事故教训 |
 | 标注坐标 | 精确对齐公式已固化（Helvetica 行盒 + AFM 字宽）；**"DSH 侧选中文字→rect"的三条实现路径待 Phase 2 选定**（复用既有标注位置 / 按页锚定 / 引入 PDF 文本层解析） | Phase 0 §5 + spec §5 |
