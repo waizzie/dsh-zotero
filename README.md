@@ -138,12 +138,19 @@ rect = [x1, baseline − 0.25·fs, x2, baseline + 1.0·fs]     // Zotero 用 1.2
 dsh plugin --profile web add dsh-better-sidebar
 
 # 2) 装本插件（任选一条）
-dsh plugin --profile web add "github:waizzie/dsh-zotero"           # 跟随 main
-dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.2"    # 锁 tag
-dsh plugin --profile web add "https://github.com/waizzie/dsh-zotero/releases/download/v0.2.2/dsh-zotero-0.2.2.tgz"
+dsh plugin --profile web add "github:waizzie/dsh-zotero"           # 跟随 main（含最新功能）
+dsh plugin --profile web add "github:waizzie/dsh-zotero#v0.2.2"    # 锁 tag（0.3.0 发布前的最新 tag）
 
 # 3) 重启 dsh web（host 半改动只在重启后生效）
 ```
+
+> 目前**没有带二进制资产的 Release**，所以不提供 `.tgz` 直链。需要离线分发时，自行打包后从本地安装
+> （文件名以 `npm pack` 的输出为准）：
+>
+> ```powershell
+> git clone https://github.com/waizzie/dsh-zotero.git; cd dsh-zotero; npm install; npm pack
+> dsh plugin --profile web add "C:\路径\dsh-zotero-<版本>.tgz"
+> ```
 
 > 从 git 或 registry 来源安装时无需手工装依赖：包管理器会按 `dependencies` 自动装上 `pdfjs-dist`
 > （面板用它把 Zotero 标注叠加在自绘 PDF 上；缺失时自动退回原生 `<iframe>` 阅读器）。
