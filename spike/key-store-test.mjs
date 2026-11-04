@@ -8,7 +8,7 @@
  *
  * 跑法：node spike/key-store-test.mjs
  */
-import { RECORD_KEY, createKeyStore } from '../lib/key-store.js';
+import { RECORD_KEY, createKeyStore, assertCredentialKey } from '../lib/key-store.js';
 
 const results = [];
 const check = (name, ok, detail) => {
@@ -30,6 +30,15 @@ check('scope 取本包名', RECORD_KEY.split('/')[0] === 'dsh-zotero', RECORD_KE
 check('旧值 zotero-local-api-key 会被 DSH 拒绝', !isCredentialKey('zotero-local-api-key'));
 check('带大写也会被拒', !isCredentialKey('dsh-zotero/Local-Key'));
 check('三段也会被拒', !isCredentialKey('a/b/c'));
+
+// 插件自己的校验函数（与 grammar 同源），并确认激活路径不抛错
+const throws = (fn) => { try { fn(); return false; } catch { return true; } };
+check('assertCredentialKey 接受 RECORD_KEY', !throws(() => assertCredentialKey(RECORD_KEY)));
+check('assertCredentialKey 拒绝旧值', throws(() => assertCredentialKey('zotero-local-api-key')));
+check('assertCredentialKey 拒绝大写', throws(() => assertCredentialKey('dsh-zotero/Local')));
+check('assertCredentialKey 拒绝三段', throws(() => assertCredentialKey('a/b/c')));
+// DSH 要求 apply 不得同步抛错：构造必须永远成功，坏键只降级为"禁用持久化"
+check('createKeyStore 构造不抛错（激活路径安全）', !throws(() => createKeyStore({ get: () => null }, () => {})));
 
 // ── 假凭据服务：记录插件实际写出的键 ──────────────────────────
 const seen = [];

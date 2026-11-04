@@ -30,7 +30,7 @@ export function apply(ctx, config = {}) {
 
   const log = (msg) => { try { ctx.logger?.info?.(`[dsh-zotero] ${msg}`); } catch { /* 日志非必需 */ } };
 
-  const keyStore = createKeyStore(ctx);
+  const keyStore = createKeyStore(ctx, log);
   const sessionState = createSessionState();
   // 面板挂载诊断：client 半通过 /api/panel.report 写入，status 与 zotero_status 回显
   const panelState = { last: null };
