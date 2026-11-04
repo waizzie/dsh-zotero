@@ -3,3 +3,6 @@ node_modules/
 *.log
 npm-debug.log*
 .DS_Store
+
+# 本地回归真值（含真实附件 key 与论文原文，绝不入库）
+spike/cases.local.json

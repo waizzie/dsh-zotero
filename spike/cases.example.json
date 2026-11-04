@@ -1,0 +1,6 @@
+{
+  "_comment": "复制为 cases.local.json 并填入你自己库里的真值。att=PDF 附件 key；rect=Zotero 已有标注的 annotationPosition.rects[0]。",
+  "cases": [
+    { "att": "ATTACH01", "pageIndex": 0, "text": "一段出现在 PDF 里的单行原文", "rect": [0, 0, 0, 0], "label": "1" }
+  ]
+}
