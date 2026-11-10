@@ -1,4 +1,4 @@
-# dsh-zotero
+﻿# dsh-zotero
 
 把本机 **Zotero 文献库**接进 DeepSeek Harness：**侧边栏面板**可浏览条目/标注/笔记并引用到会话；**模型工具**可检索条目、读取标注与笔记正文、拉取 PDF 全文、生成题录引用，并把讨论小结写成子笔记、把章节标题标成高亮。
 
@@ -226,12 +226,55 @@ credential key "zotero-local-api-key" must be "<scope>/<id>"
 | `zotero_annotations` | 标注（高亮文字 + 用户评论 + 页码） |
 | `zotero_notes` | 笔记正文（HTML→纯文本） |
 | `zotero_fulltext` | 附件全文（按字符分页续读） |
+| `zotero_find_pdf` | 调用 **Zotero 内置的「查找可用文件」** 为条目下载并挂上 PDF/EPUB（需装桥接插件，见 [bridge/README.md](bridge/README.md)） |
 | `zotero_citation` | 文内引用 + 参考文献表（CSL 风格）/ BibTeX |
 | `zotero_collections` | 分类列表 |
 | `zotero_selection` | 用户在面板里勾选的条目/标注 |
 | `zotero_authorize` | 触发 Zotero 写授权弹窗 |
 | `zotero_create_note` | 写子笔记（默认 dry-run 预览） |
 | `zotero_highlight` | 在 PDF 指定文字上创建**高亮标注**并附评论（默认 dry-run；Host 侧用 pdf.js 定位文字算 rect，见 [docs/annotation-creation.md](docs/annotation-creation.md)） |
+
+## 查找原文（`zotero_find_pdf`）
+
+**Zotero 的本地 API 没有「查找原文」端点。** 把 `C:\Program Files\Zotero\app\omni.ja` 里的 `server*.js` 全部导出核对过：50 多个端点里只有 `/connector/saveAttachmentFromResolver` 沾边，而它依赖浏览器连接器的 session（`SessionManager.get(sessionID)`），只能给"此刻正从网页保存的新条目"用，对库里已有条目直接 400。
+
+真正的解析逻辑是 `Zotero.Attachments.getFileResolvers()` + `addFileFromURLs()`，跑在 Zotero 进程内的 JS 上下文里，外部进程调不到。所以本仓库附带一个**桥接插件**（`bridge/`），把这两个函数包成端点：
+
+| 端点 | 用途 |
+|---|---|
+| `GET /dsh-zotero/ping` | 探活 + 版本 + `canFindFiles` |
+| `POST /dsh-zotero/find-file` | `{ itemKey, dryRun?, force?, methods? }` → 下载并挂附件 |
+
+它不实现任何抓取逻辑，只是转发——所以行为和你右键「查找可用的 PDF」完全一致（DOI / URL / 开放获取 / 自定义解析器都走 Zotero 自己那套）。
+
+### 安装桥接插件（一次性）
+
+```powershell
+node bridge\build.mjs          # 生成 bridge\dsh-zotero-bridge-<version>.xpi
+```
+
+然后 Zotero → **工具 → 插件 → 右上角齿轮 → 从文件安装插件** → 选那个 `.xpi` → 重启 Zotero。
+
+验证：
+
+```powershell
+curl.exe http://127.0.0.1:23119/dsh-zotero/ping
+# {"ok":true,"bridge":"dsh-zotero-bridge","version":"0.1.0",...}
+```
+
+没装时该地址返回 `No endpoint found`，此时 `zotero_find_pdf` 会明确报 `bridge-missing` 并给出安装指引，而不是含糊的 404。
+
+### 行为
+
+- **条目已有 PDF/EPUB 时默认跳过**（`alreadyHad`），不会重复下载；要强制重试传 `force=true`。
+- `dryRun=true` 只返回可用解析器数量与类型，不下载——适合先探一下有没有戏。
+- `methods` 默认 `['doi','url','oa','custom']`；只想要开放获取可传 `['oa']`。
+- 会向 Zotero 库添加附件，所以和写笔记/高亮一样受**「写回」开关**约束。
+- 下载在 Zotero 内进行，可能较慢（客户端超时放宽到 180 秒）。
+
+### 安全
+
+桥接端点只随 Zotero 自己的本地服务监听 `127.0.0.1:23119`，不对外网开放。如需额外防护，在 Zotero 高级设置里加字符串偏好 `extensions.zotero.dshBridge.token`，之后请求必须带 `X-DSH-Bridge-Token` 头。
 
 ## 面板路由
 
@@ -260,12 +303,14 @@ node -e "import('./index.js').then(m=>console.log(m.name, m.inject))"   # 装载
 node spike\toggle-test.mjs                                              # 写回开关（离线，假 configEditor）
 node spike\key-store-test.mjs                                           # 凭据记录键格式（防"下次启动炸"）
 node spike\annotation-test.mjs                                          # 高亮几何 + payload 结构
-npm pack --dry-run                                                      # 打包清单（应 15 个文件，不含 node_modules/spike/docs）
+node spike\find-pdf-test.mjs                                            # 查找原文的客户端契约（假 Zotero 服务器）
+npm pack --dry-run                                                      # 打包清单（应 20 个文件，不含 node_modules/spike/docs）
 ```
 
 - `spike/toggle-test.mjs` 全离线：用假的 `configEditor` 覆盖「改运行时 settings + 经 Loader 落 profile 补丁」两条路径。
 - `spike/key-store-test.mjs` 全离线：断言凭据记录键符合 DSH 的 `<scope>/<id>` grammar，并把旧值 `zotero-local-api-key` 钉成「必须被拒」。对应 2026-11-04 的整机启动事故。
 - `spike/annotation-test.mjs` 的**几何断言**需要真值文件 `spike/cases.local.json`——**不入库**，因为它含真实附件 key 与论文原文句子。缺该文件时自动跳过几何部分，只跑 payload 结构断言；准备方法见 `spike/cases.example.json`。
+- `spike/find-pdf-test.mjs` 全离线：起一个假 Zotero 服务器，断言 `zotero_find_pdf` 的请求形状，以及「桥接插件没装」「条目不存在」「没找到文件」「下载失败」四种情况必须区分得开。
 
 > 其余开发期套件（工具注册契约 / Host 路由 / Client 渲染）不随本仓库分发。`spike/` 与 `docs/` 也不进 npm 包（`files` 白名单不含它们）。
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-zotero",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "type": "module",
   "description": "Zotero literature panel and model tools for DeepSeek Harness.",
   "repository": {
@@ -38,6 +38,7 @@
     "index.js",
     "client.js",
     "lib",
+    "bridge",
     "cordis.patch.yml",
     "icon.svg",
     "README.md"

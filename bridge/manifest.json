@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "DSH Zotero Bridge",
+  "version": "0.1.0",
+  "description": "Expose Zotero's built-in \"Find Available File\" to DeepSeek Harness over a localhost endpoint.",
+  "author": "waizzie",
+  "homepage_url": "https://github.com/waizzie/dsh-zotero",
+  "applications": {
+    "zotero": {
+      "id": "dsh-zotero-bridge@waizzie",
+      "strict_min_version": "7.0",
+      "strict_max_version": "8.*"
+    }
+  }
+}
