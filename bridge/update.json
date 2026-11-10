@@ -1,0 +1,12 @@
+{
+  "addons": {
+    "dsh-zotero-bridge@waizzie": {
+      "updates": [
+        {
+          "version": "0.1.2",
+          "update_link": "https://raw.githubusercontent.com/waizzie/dsh-zotero/main/bridge/dsh-zotero-bridge-0.1.2.xpi"
+        }
+      ]
+    }
+  }
+}

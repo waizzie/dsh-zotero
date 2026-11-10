@@ -19,7 +19,7 @@
 
 /* global Zotero */
 
-const BRIDGE_VERSION = '0.1.1';
+const BRIDGE_VERSION = '0.1.2';
 const PING_PATH = '/dsh-zotero/ping';
 const FIND_PATH = '/dsh-zotero/find-file';
 const TOKEN_PREF = 'extensions.zotero.dshBridge.token';

@@ -22,7 +22,7 @@ Zotero 的本地 API（`/api/...`）**没有**查找原文的端点。唯一沾�
 ```powershell
 # 1) 打包（在仓库根目录）
 node bridge\build.mjs
-#    → bridge\dsh-zotero-bridge-0.1.1.xpi
+#    → bridge\dsh-zotero-bridge-0.1.2.xpi
 
 # 2) 在 Zotero 里安装
 #    工具 → 插件 → 右上角齿轮 → Install Plugin From File…
@@ -45,7 +45,7 @@ curl.exe http://127.0.0.1:23119/dsh-zotero/ping
 {
   "ok": true,
   "bridge": "dsh-zotero-bridge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "zoteroVersion": "10.0.8",
   "supportedFileTypes": ["application/pdf", "application/epub+zip"],
   "canFindFiles": true
@@ -124,6 +124,22 @@ Zotero → 工具 → 插件 → 选中 DSH Zotero Bridge → Remove。`shutdown
 
 - `strict_min_version: 7.0`，`strict_max_version: 11.*`。
 - 实测环境：Zotero **10.0.8** / Windows。
-- **版本上限写错会直接装不上**，报错是「它可能无法与该版本的 Zotero 兼容」。0.1.0 就是因为误把 `strict_max_version` 写成 `8.*`（把 Zotero 7 之后的版本号当成 7/8 系列）而被拒。Zotero 升到 12.x 时需把上限改成 `12.*` 并重新打包。
-- Zotero 默认关闭插件签名校验（`defaults/preferences/zotero.js` 里 `xpinstall.signatures.required` 最终为 `false`），所以未签名 XPI 可以安装。
+
+### manifest 里三个字段是**强制**的
+
+Zotero 的分支在 `modules/Extension.sys.mjs` 的 `parseManifest()` 里加了三条硬校验，缺任何一条都会 `manifestError()` → `packagingError()` → 最终 `throw`，表现就是安装时弹「**它可能无法与该版本的 Zotero 兼容**」：
+
+```js
+if (!manifest.applications?.zotero?.id)                 manifestError("applications.zotero.id not provided");
+if (!manifest.applications?.zotero?.update_url)         manifestError("applications.zotero.update_url not provided");
+if (!manifest.applications?.zotero?.strict_max_version) manifestError("applications.zotero.strict_max_version not provided");
+```
+
+`update_url` 最容易被漏（Firefox 里它是可选的）。本插件指向仓库里的 `bridge/update.json`；即使该 URL 不可达，也只是自动更新失效，**不影响安装与使用**。
+
+### 版本区间
+
+- 版本上限写错同样会装不上，且**报错文案与上面完全一样**（Zotero 用同一个兜底弹窗）。0.1.0 就是 `strict_max_version` 误写成 `8.*`（把 Zotero 7 之后的版本号当成 7/8 系列）而被拒。Zotero 升到 12.x 时需把上限改成 `12.*` 并重新打包。
+- Zotero 默认关闭插件签名校验（`defaults/preferences/zotero.js` 里 `xpinstall.signatures.required` 最终为 `false`），未签名 XPI 可以安装；本机已装的 5 个插件也都没有 `META-INF`。
+- Zotero 7+ **不再扫描** profile 的 `extensions\` 目录，把 `.xpi` 拷进去不会注册进 `extensions.json`，必须走插件管理器安装。
 - 若将来 Zotero 把 `addFileFromURLs` 改名（`addAvailablePDF` 已 deprecated 过一次），`ping` 的 `canFindFiles` 会变成 `false`，DSH 侧会直接报错而不是静默失败。
