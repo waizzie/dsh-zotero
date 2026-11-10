@@ -22,7 +22,7 @@ Zotero 的本地 API（`/api/...`）**没有**查找原文的端点。唯一沾�
 ```powershell
 # 1) 打包（在仓库根目录）
 node bridge\build.mjs
-#    → bridge\dsh-zotero-bridge-0.1.0.xpi
+#    → bridge\dsh-zotero-bridge-0.1.1.xpi
 
 # 2) 在 Zotero 里安装
 #    工具 → 插件 → 右上角齿轮 → Install Plugin From File…
@@ -45,8 +45,8 @@ curl.exe http://127.0.0.1:23119/dsh-zotero/ping
 {
   "ok": true,
   "bridge": "dsh-zotero-bridge",
-  "version": "0.1.0",
-  "zoteroVersion": "10.0.7",
+  "version": "0.1.1",
+  "zoteroVersion": "10.0.8",
   "supportedFileTypes": ["application/pdf", "application/epub+zip"],
   "canFindFiles": true
 }
@@ -122,6 +122,8 @@ Zotero → 工具 → 插件 → 选中 DSH Zotero Bridge → Remove。`shutdown
 
 ## 兼容性
 
-- Zotero 7.0+（`manifest.json` 里 `strict_min_version: 7.0`，`strict_max_version: 8.*`）。
-- 实测环境：Zotero 10.0.7 / Windows。
+- `strict_min_version: 7.0`，`strict_max_version: 11.*`。
+- 实测环境：Zotero **10.0.8** / Windows。
+- **版本上限写错会直接装不上**，报错是「它可能无法与该版本的 Zotero 兼容」。0.1.0 就是因为误把 `strict_max_version` 写成 `8.*`（把 Zotero 7 之后的版本号当成 7/8 系列）而被拒。Zotero 升到 12.x 时需把上限改成 `12.*` 并重新打包。
+- Zotero 默认关闭插件签名校验（`defaults/preferences/zotero.js` 里 `xpinstall.signatures.required` 最终为 `false`），所以未签名 XPI 可以安装。
 - 若将来 Zotero 把 `addFileFromURLs` 改名（`addAvailablePDF` 已 deprecated 过一次），`ping` 的 `canFindFiles` 会变成 `false`，DSH 侧会直接报错而不是静默失败。
