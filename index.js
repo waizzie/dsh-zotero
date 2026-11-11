@@ -42,8 +42,21 @@ export function apply(ctx, config = {}) {
     setApiKey: (key) => { keyStore.save(key).catch(() => {}); },
   });
 
-  // 启动时恢复已保存的写授权（不阻塞激活）
-  keyStore.load().catch(() => {});
+  // 启动时恢复已保存的写授权（不阻塞激活）。
+  //
+  // 为什么带重试：凭据服务可能比本插件晚就绪，第一次 load() 读不到就再没有第二次
+  // 机会——2026-11-11 的故障就是重启后一直「未授权」，建高亮因为每次先 authorize()
+  // 才碰巧能用，删除高亮则稳定 401。这里退避重试几次，尽量在用户动手前就恢复。
+  (async () => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const key = await keyStore.load();
+        if (key) return;
+      } catch { /* load 内部已记日志 */ }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+    try { log?.('写密钥未能在启动时恢复；写操作会在首次请求时向 Zotero 重新申请授权'); } catch { /* noop */ }
+  })();
 
   // 1) 工具（模型可见）
   ctx.effect(() => {

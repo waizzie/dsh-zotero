@@ -77,6 +77,33 @@ const memOnly = createKeyStore({ get: () => null });
 await memOnly.save('m'.repeat(40));
 check('凭据服务缺失时降级为内存', memOnly.get()?.length === 40);
 
+// ── ensureLoaded：写操作前补读密钥（2026-11-11 重启后 401 的回归）────
+// 场景：激活时 load() 早于凭据服务就绪，内存为空；写操作前再要一次应该能拿到。
+{
+  const stored = 'k'.repeat(36);
+  let reads = 0;
+  const lateCreds = {
+    async readRecord(key) { reads++; return { kind: 'grant', payload: { key: stored } }; },
+    async modifyRecord() { return {}; },
+    async describeRecord() { return { configured: true }; },
+  };
+  const lateStore = createKeyStore({ get: (n) => (n === 'credentials' ? lateCreds : null) }, () => {});
+  check('ensureLoaded 前内存为空', lateStore.get() === null);
+  const got = await lateStore.ensureLoaded();
+  check('ensureLoaded 能从凭据服务补到密钥', got === stored, String(got?.length));
+  const readsAfterFirst = reads;
+  await lateStore.ensureLoaded();
+  check('已有密钥时 ensureLoaded 不再重复读', reads === readsAfterFirst, `${reads} vs ${readsAfterFirst}`);
+}
+
+// 凭据服务返回空时，ensureLoaded 不抛错、保持未授权（交给上层重新授权）
+{
+  const emptyStore = createKeyStore({ get: () => ({ readRecord: async () => null }) }, () => {});
+  let threw = false;
+  try { await emptyStore.ensureLoaded(); } catch { threw = true; }
+  check('凭据为空时 ensureLoaded 不抛错', !threw && emptyStore.get() === null);
+}
+
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} PASS`);
 process.exit(failed.length === 0 ? 0 : 1);
