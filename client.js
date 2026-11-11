@@ -271,6 +271,7 @@ window.__ModuleLoader__.load({
 .dz-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dz-btn[disabled]{opacity:.5;cursor:default}
 .dz-btn.primary{color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1)}
+.dz-btn.dz-danger{color:var(--dsw-alias-label-error,#d9534f)}
 .dz-btn.sm{padding:1px 6px;font-size:11px}
 .dz-search{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center}
 .dz-input{flex:1;min-width:0;box-sizing:border-box;background:var(--dsw-alias-bg-layer-2,transparent);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;outline:none}
@@ -469,6 +470,10 @@ window.__ModuleLoader__.load({
       const [viewport, setViewport] = React.useState(null);
       const [renderError, setRenderError] = React.useState('');
       const [selpop, setSelpop] = React.useState(null);
+      const [delBusy, setDelBusy] = React.useState(false);
+      const [delError, setDelError] = React.useState('');
+
+      React.useEffect(() => { setDelError(''); }, [popup?.ann?.key]);
 
       const { boxes, problems } = React.useMemo(
         () => (viewport ? computeOverlay(viewport, annotations, pageNumber) : { boxes: [], problems: [] }),
@@ -749,6 +754,8 @@ window.__ModuleLoader__.load({
           popupHere.ann.commentText ? h('div', { key: 'c', className: 'dz-popcomment' }, popupHere.ann.commentText) : null,
           !popupHere.ann.commentText && !popupHere.ann.text ? h('div', { key: 'e', className: 'dz-poptext' }, '（这条标注没有内容）') : null,
           popupHere.ann.tags?.length ? h('div', { key: 'g', className: 'dz-pophead' }, `标签：${popupHere.ann.tags.join('、')}`) : null,
+          delError ? h('div', { key: 'delerr', className: 'dz-poptext', role: 'alert',
+            style: { color: 'var(--dsw-alias-label-error, #d9534f)' } }, `删除失败：${delError}`) : null,
           h('div', { key: 'a', className: 'dz-popacts' }, [
             h('button', {
               key: 'zotero', className: 'dz-btn sm',
@@ -758,6 +765,26 @@ window.__ModuleLoader__.load({
               key: 'copy', className: 'dz-btn sm',
               onClick: () => { try { navigator.clipboard?.writeText(`${popupHere.ann.text}\n${popupHere.ann.commentText ?? ''}`.trim()); } catch { /* noop */ } },
             }, '复制'),
+            h('button', {
+              key: 'del', className: 'dz-btn sm dz-danger',
+              disabled: delBusy,
+              onClick: async (e) => {
+                e.stopPropagation();
+                if (delBusy) return;
+                const ok = window.confirm('把这条高亮移入 Zotero 回收站？\n可以在 Zotero 的「回收站」里恢复。');
+                if (!ok) return;
+                setDelBusy(true); setDelError('');
+                try {
+                  await call('annotation.delete', { key: popupHere.ann.key });
+                  await onRefreshAnnotations?.();
+                  onClosePopup?.();
+                } catch (err) {
+                  setDelError(err?.message ?? String(err));
+                } finally {
+                  setDelBusy(false);
+                }
+              },
+            }, delBusy ? '删除中…' : '删除'),
             h('button', { key: 'close', className: 'dz-btn sm', onClick: () => onClosePopup() }, '关闭'),
           ]),
         ]) : null,
