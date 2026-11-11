@@ -16,7 +16,7 @@
  *   GET  /dsh-zotero/file?key=<附件>  附件字节流（面板内嵌 PDF 阅读，支持 Range）
  *
  * 纯 JS + React.createElement，无构建步骤；样式只用 --dsw-alias-* 主题令牌。
- * 范围：只读浏览 + 分类树 + 文献池 + 引用到会话 + 面板内文档阅读；不含高亮创建。
+ * 范围：分类树 + 文献池 + 引用到会话 + 面板内文档阅读 + 手动创建高亮。
  */
 
 window.__ModuleLoader__.load({
@@ -60,6 +60,9 @@ window.__ModuleLoader__.load({
     /** 最近一次解析到的侧栏服务（面板里「DSH 预览」等能力用它，不再直接摸 ctx）。 */
     const sidebarRef = { current: null };
 
+    // 同一个 Client 模块可能被多次挂接；避免重复占用同一份 PDF 查看器描述符。
+    let fileViewerRegistered = false;
+
     /** 最近一次挂载诊断，供 /dsh-zotero/api/panel.report 上报。 */
     let lastAttach = { attached: false, reason: '尚未初始化' };
 
@@ -77,7 +80,41 @@ window.__ModuleLoader__.load({
         return { attached: false, reason: lastAttach.reason };
       }
       try {
-        const register = () => service.registerTab(descriptor);
+        const register = () => {
+          const disposeTab = service.registerTab(descriptor);
+          let disposeViewer = null;
+          let ownsViewer = false;
+
+          // better-sidebar 的旧版本没有文件查看器扩展点：只保留原 tab，不影响面板。
+          if (typeof service.registerFileViewer === 'function' && !fileViewerRegistered) {
+            try {
+              disposeViewer = service.registerFileViewer({
+                id: 'dsh-zotero:pdf',
+                title: () => 'PDF（Zotero 可高亮）',
+                exts: ['pdf'],
+                priority: 1,
+                fetchStrategy: 'mediaUrl',
+                component: (props) => h(ZoteroPdfView, props),
+              });
+              fileViewerRegistered = true;
+              ownsViewer = true;
+            } catch (e) {
+              // 另一个挂接已占用同一 id 时同样视为成功；其它异常也不能拖垮 tab。
+              if (/already registered/i.test(e?.message ?? String(e))) fileViewerRegistered = true;
+            }
+          }
+
+          return () => {
+            try {
+              if (ownsViewer) {
+                try { if (typeof disposeViewer === 'function') disposeViewer(); } catch { /* noop */ }
+                fileViewerRegistered = false;
+              }
+            } finally {
+              if (typeof disposeTab === 'function') disposeTab();
+            }
+          };
+        };
         const ctx = scopedCtx ?? {};
         const disposer = typeof ctx.effect === 'function' ? ctx.effect(register, label) : register();
         sidebarRef.current = service;
@@ -283,16 +320,33 @@ window.__ModuleLoader__.load({
 .dz-pvscroll{flex:1;min-height:0;overflow:auto;background:var(--dsw-alias-bg-document-preview,var(--dsw-alias-bg-layer-1));padding:8px 0}
 .dz-page{position:relative;margin:0 auto 10px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18)}
 .dz-pagecanvas{display:block}
-.dz-overlay{position:absolute;inset:0;pointer-events:none}
+.dz-textlayer{position:absolute;inset:0;z-index:1;overflow:hidden;line-height:1;user-select:text}
+.dz-textlayer span{position:absolute;white-space:pre;color:transparent;cursor:text;transform-origin:0 0}
+.dz-textlayer ::selection{background:rgba(0,120,255,.28)}
+.dz-overlay{position:absolute;inset:0;z-index:2;pointer-events:none}
 .dz-hl{position:absolute;pointer-events:auto;cursor:pointer;border-radius:2px;mix-blend-mode:multiply}
 .dz-hl:hover{outline:1px solid var(--dsw-alias-label-secondary);outline-offset:1px}
 .dz-hl.commented::after{content:'';position:absolute;right:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d9a300);border:1px solid #fff}
-.dz-pagelabel{position:absolute;left:6px;top:4px;font-size:11px;color:#8a8a8a;pointer-events:none}
+.dz-pagelabel{position:absolute;left:6px;top:4px;z-index:3;font-size:11px;color:#8a8a8a;pointer-events:none}
 .dz-pop{position:absolute;z-index:5;max-width:min(320px,86%);background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.22);padding:8px 10px;font-size:12px;line-height:17px}
 .dz-pophead{display:flex;align-items:center;gap:6px;color:var(--dsw-alias-label-tertiary);font-size:11px;margin-bottom:4px}
 .dz-poptext{margin:2px 0}
 .dz-popcomment{margin:4px 0;padding:6px 8px;border-left:2px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2,transparent);white-space:pre-wrap;border-radius:0 4px 4px 0}
 .dz-popacts{display:flex;gap:6px;margin-top:6px;justify-content:flex-end}
+.dz-selpop{position:absolute;z-index:6;width:min(300px,86%);box-sizing:border-box;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.22);padding:8px 10px;font-size:12px;line-height:17px}
+.dz-seltext{max-height:72px;overflow:auto;margin:0 0 6px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary)}
+.dz-selcomment{width:100%;min-height:64px;box-sizing:border-box;resize:vertical;background:var(--dsw-alias-bg-layer-2,transparent);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:5px 7px;font-size:12px;line-height:17px;font-family:inherit;outline:none}
+.dz-selcomment:focus{border-color:var(--dsw-focus-ring-color,var(--dsw-alias-border-l1))}
+.dz-selcolors{display:flex;align-items:center;gap:8px;margin:8px 0 2px}
+.dz-selcolor{width:18px;height:18px;padding:0;border:2px solid transparent;border-radius:50%;cursor:pointer;box-shadow:0 0 0 1px var(--dsw-alias-border-l1)}
+.dz-selcolor.active{border-color:var(--dsw-alias-label-primary)}
+.dz-selerror{margin-top:6px;color:var(--dsw-alias-state-error-primary,#d64545);font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}
+.dz-zoteroviewer{height:100%;width:100%;min-height:0;color:var(--dsw-alias-label-primary)}
+.dz-viewerbar{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;flex-wrap:wrap}
+.dz-viewertitle{flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dz-viewerpage,.dz-viewerstatus{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;white-space:nowrap}
+.dz-viewerstatus{color:var(--dsw-alias-label-secondary)}
+.dz-pvopen{display:inline-block;margin-left:8px;color:var(--dsw-alias-label-primary);text-decoration:underline;white-space:nowrap}
 `;
 
     // ─────────────── pdf.js 自绘阅读器：把 Zotero 既有标注渲染到页面上 ───────────────
@@ -405,14 +459,16 @@ window.__ModuleLoader__.load({
      * 现在 viewport 存进 state，boxes 用 useMemo 从 (viewport, annotations, pageNumber) 派生，
      * 标注什么时候到都能立刻画出来，也不必重绘画布。
      */
-    function PdfPage({ pdf, pageNumber, scale, annotations, popup, attachmentKey, onPick, onClosePopup, onReportBoxes }) {
+    function PdfPage({ pdf, pageNumber, scale, annotations, popup, attachmentKey, onPick, onClosePopup, onReportBoxes, onRefreshAnnotations, canHighlight = true }) {
       const wrapRef = React.useRef(null);
       const canvasRef = React.useRef(null);
+      const textLayerRef = React.useRef(null);
       const renderTaskRef = React.useRef(null);
       const [status, setStatus] = React.useState('idle');
       const [size, setSize] = React.useState(null);
       const [viewport, setViewport] = React.useState(null);
       const [renderError, setRenderError] = React.useState('');
+      const [selpop, setSelpop] = React.useState(null);
 
       const { boxes, problems } = React.useMemo(
         () => (viewport ? computeOverlay(viewport, annotations, pageNumber) : { boxes: [], problems: [] }),
@@ -459,6 +515,34 @@ window.__ModuleLoader__.load({
             renderTaskRef.current = task;
             await task.promise;
             if (cancelled) return;
+
+            // 透明文本层只负责划词；文字位置沿用 viewport 仿射矩阵，宽度再按 PDF 目标宽度拉伸。
+            const layer = textLayerRef.current;
+            if (layer) {
+              const tc = await page.getTextContent();
+              if (cancelled) return;
+              layer.textContent = '';
+              for (const it of tc.items) {
+                if (!it.str) continue;
+                const [a, b, c, d, e, f] = vp.transform;
+                const x = a * it.transform[4] + c * it.transform[5] + e;
+                const y = b * it.transform[4] + d * it.transform[5] + f;
+                const fs = Math.hypot(it.transform[2], it.transform[3]);
+                const span = document.createElement('span');
+                span.style.left = `${x}px`;
+                span.style.top = `${y - fs * scale}px`;
+                span.style.fontSize = `${fs * scale}px`;
+                span.dataset.baseline = String(it.transform[5]);
+                span.dataset.fs = String(fs);
+                span.textContent = it.str;
+                layer.appendChild(span);
+                const naturalWidth = span.getBoundingClientRect().width;
+                const targetWidth = it.width * scale;
+                if (naturalWidth > 0 && Number.isFinite(targetWidth) && targetWidth > 0) {
+                  span.style.transform = `scaleX(${targetWidth / naturalWidth})`;
+                }
+              }
+            }
             setViewport(vp);                                  // ← 覆盖框从这里派生
             setSize({ width: Math.floor(vp.width), height: Math.floor(vp.height) });
             setStatus('done');
@@ -475,6 +559,105 @@ window.__ModuleLoader__.load({
           try { renderTaskRef.current?.cancel(); } catch { /* noop */ }
         };
       }, [status, pdf, pageNumber, scale]);
+
+      // 页面滚动后原选区位置已经失效，直接关闭新建浮层，避免浮层停在错误的位置。
+      React.useEffect(() => {
+        const scroller = wrapRef.current?.closest('.dz-pvscroll');
+        if (!scroller) return undefined;
+        const close = () => setSelpop(null);
+        scroller.addEventListener('scroll', close, { passive: true });
+        return () => scroller.removeEventListener('scroll', close);
+      }, []);
+
+      /** 把 DOM 选区按 viewport 逆矩阵换回 PDF 用户空间，纵坐标采用已标定的基线系数。 */
+      const onTextMouseUp = () => {
+        if (!canHighlight) return;
+        const layer = textLayerRef.current;
+        const sel = window.getSelection();
+        if (!layer || !viewport || !sel || sel.rangeCount === 0 || sel.isCollapsed) {
+          setSelpop(null);
+          return;
+        }
+        if (!layer.contains(sel.anchorNode) || !layer.contains(sel.focusNode)) {
+          setSelpop(null);
+          return;
+        }
+        const text = sel.toString();
+        if (!text.trim()) { setSelpop(null); return; }
+
+        const [a, b, c, d, e, f] = viewport.transform;
+        const det = a * d - b * c;
+        if (!Number.isFinite(det) || Math.abs(det) < 1e-8) { setSelpop(null); return; }
+        const toPdf = (x, y) => {
+          const tx = x - e;
+          const ty = y - f;
+          return [(d * tx - c * ty) / det, (a * ty - b * tx) / det];
+        };
+
+        const layerBox = layer.getBoundingClientRect();
+        const spans = [...layer.querySelectorAll('span')].map((node) => ({ node, box: node.getBoundingClientRect() }));
+        const domRects = [...sel.getRangeAt(0).getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+        const rects = [];
+        for (const rect of domRects) {
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const owner = spans.find(({ box }) => (
+            rect.left >= box.left - 1 && rect.right <= box.right + 1
+            && rect.top >= box.top - 2 && rect.bottom <= box.bottom + 2
+          )) ?? spans.find(({ box }) => cx >= box.left - 1 && cx <= box.right + 1 && cy >= box.top - 2 && cy <= box.bottom + 2);
+          if (!owner) continue;
+          const baseline = Number(owner.node.dataset.baseline);
+          const fs = Number(owner.node.dataset.fs);
+          const p1 = toPdf(rect.left - layerBox.left, rect.top - layerBox.top + rect.height / 2);
+          const p2 = toPdf(rect.right - layerBox.left, rect.top - layerBox.top + rect.height / 2);
+          if (![baseline, fs, ...p1, ...p2].every(Number.isFinite) || fs <= 0) continue;
+          rects.push([
+            Math.min(p1[0], p2[0]),
+            baseline - 0.25 * fs,
+            Math.max(p1[0], p2[0]),
+            baseline + 1.0 * fs,
+          ]);
+        }
+        if (rects.length === 0 || domRects.length === 0) { setSelpop(null); return; }
+
+        const last = domRects[domRects.length - 1];
+        const pageWidth = size?.width ?? viewport.width;
+        const pageHeight = size?.height ?? viewport.height;
+        const left = Math.max(4, Math.min(last.left - layerBox.left, pageWidth - 300));
+        const top = Math.max(4, Math.min(last.bottom - layerBox.top + 6, pageHeight - 230));
+        setSelpop({ left, top, text, rects, comment: '', color: '#ffd400', saving: false, error: '' });
+      };
+
+      const updateSelpop = (patch) => setSelpop((prev) => (prev ? { ...prev, ...patch } : prev));
+      const cancelSelection = () => {
+        window.getSelection()?.removeAllRanges();
+        setSelpop(null);
+      };
+
+      /** 写入 Zotero 后重新读取整份标注，让新框与其它来源的标注保持一致。 */
+      const saveSelection = async () => {
+        const draft = selpop;
+        if (!draft || draft.saving || !viewport) return;
+        updateSelpop({ saving: true, error: '' });
+        try {
+          await call('annotation.create', {
+            attachmentKey,
+            text: draft.text,
+            comment: draft.comment,
+            color: draft.color,
+            pageIndex: pageNumber - 1,
+            pageLabel: String(pageNumber),
+            pageHeight: viewport.height / scale,
+            rects: draft.rects,
+          });
+          await onRefreshAnnotations?.();
+          window.getSelection()?.removeAllRanges();
+          setSelpop(null);
+          onClosePopup?.();
+        } catch (e) {
+          setSelpop((prev) => (prev ? { ...prev, saving: false, error: e?.message ?? String(e) } : prev));
+        }
+      };
 
       const isUnderline = (ann) => ann.type === 'underline';
       const popupHere = popup && popup.pageNumber === pageNumber ? popup : null;
@@ -494,6 +677,7 @@ window.__ModuleLoader__.load({
           : (status !== 'done' ? h('div', { key: 'ph', className: 'dz-msg' },
             status === 'idle' ? `第 ${pageNumber} 页（滚动到此处时渲染）` : `第 ${pageNumber} 页渲染中…`) : null),
         h('canvas', { key: 'c', ref: canvasRef, className: 'dz-pagecanvas' }),
+        h('div', { key: 't', ref: textLayerRef, className: 'dz-textlayer', onMouseUp: onTextMouseUp }),
         h('div', { key: 'o', className: 'dz-overlay' }, boxes.map((b, i) => h('div', {
           key: `${b.ann.key}-${i}`,
           className: `dz-hl${b.ann.commentText ? ' commented' : ''}`,
@@ -505,13 +689,49 @@ window.__ModuleLoader__.load({
             height: isUnderline(b.ann) ? 2 : b.height,
             background: withAlpha(b.ann.color, isUnderline(b.ann) ? 1 : 0.32),
           },
-          onClick: (e) => { e.stopPropagation(); onPick(b); },
+          onClick: (e) => { e.stopPropagation(); setSelpop(null); onPick(b); },
         }))),
         problems.length
           ? h('div', { key: 'prob', className: 'dz-msg warn', style: { position: 'absolute', left: 6, bottom: 4 } },
             `本页 ${problems.length} 个标注换算失败：${problems.slice(0, 2).join('；')}`)
           : null,
         h('div', { key: 'n', className: 'dz-pagelabel' }, `第 ${pageNumber} 页`),
+        selpop ? h('div', {
+          key: 'selpop', className: 'dz-selpop',
+          style: { left: selpop.left, top: selpop.top },
+          onClick: (e) => e.stopPropagation(),
+          onMouseDown: (e) => e.stopPropagation(),
+        }, [
+          h('div', { key: 'text', className: 'dz-seltext' },
+            `「${selpop.text.length > 120 ? `${selpop.text.slice(0, 120)}…` : selpop.text}」`),
+          h('textarea', {
+            key: 'comment', className: 'dz-selcomment', value: selpop.comment,
+            placeholder: '写点评论（可选）', disabled: selpop.saving,
+            onChange: (e) => updateSelpop({ comment: e.target.value }),
+          }),
+          h('div', { key: 'colors', className: 'dz-selcolors' }, [
+            { color: '#ffd400', label: '黄' },
+            { color: '#5fb236', label: '绿' },
+            { color: '#2ea8e5', label: '蓝' },
+            { color: '#ff6666', label: '红' },
+          ].map(({ color, label }) => h('button', {
+            key: color, type: 'button', title: label, 'aria-label': label,
+            className: `dz-selcolor${selpop.color === color ? ' active' : ''}`,
+            style: { background: color }, disabled: selpop.saving,
+            onClick: () => updateSelpop({ color }),
+          }))),
+          selpop.error ? h('div', { key: 'error', className: 'dz-selerror', role: 'alert' }, selpop.error) : null,
+          h('div', { key: 'acts', className: 'dz-popacts' }, [
+            h('button', {
+              key: 'save', className: 'dz-btn primary sm', disabled: selpop.saving,
+              onClick: saveSelection,
+            }, selpop.saving ? '保存中…' : '保存高亮'),
+            h('button', {
+              key: 'cancel', className: 'dz-btn sm', disabled: selpop.saving,
+              onClick: cancelSelection,
+            }, '取消'),
+          ]),
+        ]) : null,
         popupHere ? h('div', {
           key: 'pop', className: 'dz-pop',
           style: {
@@ -544,6 +764,155 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /** better-sidebar 的 PDF 查看器：复用面板阅读器，让宿主预览也能划词写回 Zotero。 */
+    function ZoteroPdfView({ path, title, mediaUrl, scope }) {
+      try {
+        const [pdf, setPdf] = React.useState(null);
+      const [numPages, setNumPages] = React.useState(0);
+      const [scale, setScale] = React.useState(1.2);
+      const [key, setKey] = React.useState(null);
+      const [annotations, setAnnotations] = React.useState([]);
+      const [popup, setPopup] = React.useState(null);
+      const [loading, setLoading] = React.useState(true);
+      const [error, setError] = React.useState('');
+      const [annError, setAnnError] = React.useState('');
+
+      const refreshAnnotations = React.useCallback(async () => {
+        if (!key) return;
+        const fresh = await call('annotations', { key, maxCommentChars: 4000 });
+        setAnnotations(fresh.annotations ?? []);
+      }, [key]);
+
+      React.useEffect(() => {
+        let cancelled = false;
+        let loadingTask = null;
+
+        const destroyLoadingTask = () => {
+          if (!loadingTask) return;
+          try {
+            const result = loadingTask.destroy();
+            if (result && typeof result.catch === 'function') result.catch(() => {});
+          } catch { /* noop */ }
+        };
+
+        setLoading(true);
+        setError('');
+        setAnnError('');
+        setPdf(null);
+        setNumPages(0);
+        setKey(null);
+        setAnnotations([]);
+        setPopup(null);
+
+        (async () => {
+          try {
+            const info = await call('attachment.byPath', { path }).catch(() => null);
+            const key = info?.attachmentKey ?? null;
+            if (cancelled) return;
+            setKey(key);
+
+            const url = key ? FILE + encodeURIComponent(key) : mediaUrl;
+            if (!url) throw new Error('没有可读取的 PDF 地址');
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`读取 PDF 失败（HTTP ${res.status}）`);
+            const buf = await res.arrayBuffer();
+
+            const pdfjs = await loadPdfjs();
+            if (cancelled) return;
+            loadingTask = pdfjs.getDocument({ data: new Uint8Array(buf) });
+            const doc = await loadingTask.promise;
+            if (cancelled) return;
+            setPdf(doc);
+            setNumPages(doc.numPages);
+
+            if (key) {
+              try {
+                const anns = await call('annotations', { key, maxCommentChars: 4000 });
+                if (!cancelled) setAnnotations(anns.annotations ?? []);
+              } catch (e) {
+                if (!cancelled) {
+                  setAnnotations([]);
+                  setAnnError(e?.message ?? String(e));
+                }
+              }
+            } else if (!cancelled) {
+              setAnnotations([]);
+            }
+          } catch (e) {
+            if (!cancelled) setError(e?.message ?? String(e));
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        })();
+
+        return () => {
+          cancelled = true;
+          destroyLoadingTask();
+        };
+      }, [path, mediaUrl]);
+
+      const fallbackUrl = key ? FILE + encodeURIComponent(key) : (mediaUrl || '');
+
+      return h('div', { className: 'dz-pv dz-zoteroviewer' }, [
+        // 面板与宿主 editor tab 不会同时挂载，因此查看器必须自行携带同一份样式。
+        h('style', { key: 'css' }, CSS),
+        h('div', { key: 'bar', className: 'dz-viewerbar' }, [
+          h('span', {
+            key: 'title', className: 'dz-viewertitle', title: title ?? path ?? 'PDF',
+          }, title ?? path ?? 'PDF'),
+          h('span', { key: 'pages', className: 'dz-viewerpage' },
+            loading ? '页码加载中…' : `共 ${numPages || '?'} 页`),
+          h('button', {
+            key: 'zoom-out', className: 'dz-btn', title: '缩小', disabled: !pdf || scale <= 0.6,
+            onClick: () => setScale((s) => Math.max(0.6, +(s - 0.15).toFixed(2))),
+          }, '−'),
+          h('span', { key: 'scale', className: 'dz-viewerpage' }, `${Math.round(scale * 100)}%`),
+          h('button', {
+            key: 'zoom-in', className: 'dz-btn', title: '放大', disabled: !pdf || scale >= 3,
+            onClick: () => setScale((s) => Math.min(3, +(s + 0.15).toFixed(2))),
+          }, '+'),
+          h('span', { key: 'mode', className: 'dz-viewerstatus' },
+            loading && !key
+              ? '正在识别 Zotero 附件…'
+              : (key ? '可划词新建高亮' : '该文件不是 Zotero 附件，只能阅读')),
+        ]),
+        error ? h('div', { key: 'error', className: 'dz-msg err', role: 'alert' }, [
+          `加载 PDF 失败：${error}`,
+          fallbackUrl ? h('a', {
+            key: 'open', className: 'dz-pvopen', href: fallbackUrl, target: '_blank', rel: 'noreferrer',
+          }, '在新窗口打开') : null,
+        ]) : null,
+        annError ? h('div', { key: 'ann-error', className: 'dz-msg err', role: 'alert' },
+          `读取标注失败：${annError}`) : null,
+        h('div', {
+          key: 'scroll', className: 'dz-pvscroll', onClick: () => setPopup(null),
+        }, pdf
+          ? Array.from({ length: numPages }, (_, i) => h(PdfPage, {
+            // PdfPage 缩放时需重新挂载，才会用新 viewport 重绘画布与文本层。
+            key: `${i}:${scale}`,
+            pdf, pageNumber: i + 1, scale, annotations, popup, attachmentKey: key,
+            onPick: (box) => setPopup({ ...box, pageNumber: i + 1 }),
+            onClosePopup: () => setPopup(null),
+            onReportBoxes: () => {},
+            onRefreshAnnotations: refreshAnnotations,
+            canHighlight: Boolean(key),
+          }))
+          : h('div', { className: 'dz-msg' },
+            loading ? '正在加载 PDF 与 pdf.js…' : (error ? '请使用上方链接在新窗口打开。' : '暂无内容'))),
+      ]);
+      } catch (e) {
+        return h('div', { className: 'dz-pv dz-zoteroviewer' }, [
+          h('style', { key: 'css' }, CSS),
+          h('div', { key: 'render-error', className: 'dz-msg err', role: 'alert' }, [
+            `PDF 查看器渲染失败：${e?.message ?? String(e)}`,
+            mediaUrl ? h('a', {
+              key: 'open', className: 'dz-pvopen', href: mediaUrl, target: '_blank', rel: 'noreferrer',
+            }, '在新窗口打开') : null,
+          ]),
+        ]);
+      }
+    }
+
     /** 阅读器：工具栏（缩放/翻页）+ 连续滚动页面 + 标注小窗。 */
     function PdfViewer({ fileKey, title, size, onClose, onOpenHost, onNewWindow }) {
       const [pdf, setPdf] = React.useState(null);
@@ -568,6 +937,12 @@ window.__ModuleLoader__.load({
         for (const v of boxMapRef.current.values()) sum += v;
         setBoxTotal(sum);
       }, []);
+
+      const refreshAnnotations = React.useCallback(async () => {
+        const fresh = await call('annotations', { key: fileKey, maxCommentChars: 4000 });
+        setAnnotations(fresh.annotations ?? []);
+        setAnnError('');
+      }, [fileKey]);
 
       // 只叠加 Zotero 内创建的标注；PDF 自带的（如先在 Acrobat 标好再导入）已由 pdf.js 画在画布上
       const overlayAnns = React.useMemo(() => (annotations ?? []).filter((a) => a.external !== true), [annotations]);
@@ -674,6 +1049,7 @@ window.__ModuleLoader__.load({
             onPick: (box) => setPopup({ ...box, pageNumber: i + 1 }),
             onClosePopup: () => setPopup(null),
             onReportBoxes: reportBoxes,
+            onRefreshAnnotations: refreshAnnotations,
           }))
           : h('div', { className: 'dz-msg' }, loading ? '正在加载 PDF 与 pdf.js…' : '暂无内容')),
       ]);
@@ -697,6 +1073,7 @@ window.__ModuleLoader__.load({
       const [expandedKey, setExpandedKey] = React.useState(null);
       const [expanded, setExpanded] = React.useState(null);
       const [expandedBusy, setExpandedBusy] = React.useState(false);
+      const [openNotes, setOpenNotes] = React.useState(() => new Set());
       const [pool, setPool] = React.useState(() => new Map());
       const [citation, setCitation] = React.useState('');
       const [viewer, setViewer] = React.useState(saved.viewer ?? null);
@@ -833,6 +1210,7 @@ window.__ModuleLoader__.load({
             }));
           }
           const anns = await call('annotations', { key, maxCommentChars: 800 }).catch(() => ({ annotations: [] }));
+          const noteBodies = await call('notes', { key, maxCharsPerNote: 2000 }).catch(() => ({ notes: [] }));
           setExpanded({
             key,
             item: v.item,
@@ -840,6 +1218,7 @@ window.__ModuleLoader__.load({
             parent: v.parent,
             attachments,
             notes: v.notes ?? [],
+            noteTexts: noteBodies.notes ?? [],
             annotations: anns.annotations ?? [],
           });
         } catch (e) {
@@ -1001,6 +1380,33 @@ window.__ModuleLoader__.load({
 
           h('div', { key: 'anh', className: 'dz-sub' }, `标注 ${expanded.annotations.length} 条`),
           ...annotList(expanded.annotations),
+
+          h('div', { key: 'nth', className: 'dz-sub' }, `笔记 ${expanded.noteTexts.length} 条`),
+          ...(expanded.noteTexts.length === 0
+            ? [h('div', { key: 'nonote', className: 'dz-msg' }, '没有笔记。')]
+            : expanded.noteTexts.map((note, i) => {
+              const noteKey = note.key ?? String(i);
+              const text = String(note.text ?? '');
+              const opened = openNotes.has(noteKey);
+              const collapsed = text.length > 240 && !opened;
+              const shown = collapsed ? `${text.slice(0, 240)}…` : text;
+              return h('div', { key: noteKey, className: 'dz-ann' }, [
+                h('div', { key: 'h', className: 'dz-annq' }, `笔记 ${i + 1} · ${note.textChars ?? text.length} 字`),
+                h('div', { key: 'b', style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } },
+                  `${shown}${note.truncated ? '\n（已截断）' : ''}`),
+                text.length > 240 ? h('button', {
+                  key: 'toggle', className: 'dz-btn sm',
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    setOpenNotes((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(noteKey)) next.delete(noteKey); else next.add(noteKey);
+                      return next;
+                    });
+                  },
+                }, opened ? '收起' : '展开') : null,
+              ]);
+            })),
 
           h('div', { key: 'acts', className: 'dz-acts' }, [
             h('button', { key: 'p', className: 'dz-btn', onClick: (e) => { e.stopPropagation(); togglePool({ key: item.key, title: d.title ?? null }); } },
