@@ -41,7 +41,8 @@
     "bridge",
     "cordis.patch.yml",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "dependencies": {
     "pdfjs-dist": "^6.3.289"

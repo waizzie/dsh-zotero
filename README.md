@@ -1,9 +1,12 @@
-﻿# dsh-zotero
+# dsh-zotero
 
-把本机 **Zotero 文献库**接进 DeepSeek Harness：**侧边栏面板**可浏览条目/标注/笔记并引用到会话；**模型工具**可检索条目、读取标注与笔记正文、拉取 PDF 全文、生成题录引用，并把讨论小结写成子笔记、把章节标题标成高亮。
+把本机 **Zotero 文献库**接进 DeepSeek Harness：**侧边栏面板**可浏览条目/标注/笔记并引用到会话，也能在 PDF 上**直接划词建高亮、写评论、删高亮**；**模型工具**可检索条目、读取标注与笔记正文、拉取 PDF 全文、生成题录引用，并把讨论小结写成子笔记、把章节标题标成高亮。
 
-> 能力边界：面板**只读**——不创建、不修改、不删除任何 Zotero 对象；**写入只走模型工具**，且受「写回」开关、Zotero 授权、默认 dry-run 三重门控。
-> 可写对象只有两类：**子笔记**（`zotero_create_note`）与**高亮/下划线标注**（`zotero_highlight`，见[标注创建](#标注创建高亮)与 [docs/annotation-creation.md](docs/annotation-creation.md)）。
+> 能力边界（0.4.x 起面板不再只读）：
+> - **读**：条目、分类、附件、标注、笔记正文、PDF 全文。
+> - **写**：① 子笔记（`zotero_create_note`）；② 高亮/下划线标注（`zotero_highlight` 与面板划词）；③ **删除标注**（`annotation.delete`，只移入 Zotero 回收站、**可恢复**，不做永久删除）。
+> - 所有写入都受「写回」开关 + Zotero 授权双重门控；模型工具的创建类操作默认 dry-run。面板删除必须经过二次确认。
+> - 详见[标注创建](#标注创建高亮)与 [docs/annotation-creation.md](docs/annotation-creation.md)。
 
 ## 侧边栏面板（承载面 A）
 
@@ -32,9 +35,10 @@
 | 头部 | 连接状态（Zotero 版本 / 库版本）+ **写回开关**（真按钮：点一下即开/关，并持久化到 profile 配置）+ 刷新 |
 | 检索 | 题名/作者/**全文**检索；「最近」回到最近修改 |
 | **左列分类** | 同步 Zotero 自建分类（含**子分类层级**与**每类条目数**），点击即在该类范围内列出文献 |
-| **行内展开** | 点条目在其**下方**展开操作与详情（摘要、附件、标注、加入文献池、引用），不再堆到面板底部 |
+| **行内展开** | 点条目在其**下方**展开操作与详情（摘要、附件、标注、**笔记正文**、加入文献池、引用），不再堆到面板底部 |
 | 文献池操作条 | 位于**列表上方**：计数 · 同步到会话 · 引用 · 插入输入框 · 清空 |
-| **文档阅读** | 附件行「打开」→ **pdf.js 自绘阅读器**，把 Zotero 既有**高亮/下划线叠加在页面上**，点标注在**原位弹小窗**看评论；另有「DSH 预览」（宿主文档预览）与「新窗口」 |
+| **文档阅读** | 附件行「打开」→ **pdf.js 自绘阅读器**：叠加既有**高亮/下划线**、点标注在**原位弹小窗**看评论并**删除**、**拖选文字直接新建高亮**；另有「DSH 预览」（已被本插件接管，同样可划词）与「新窗口」 |
+| **笔记正文** | 展开区「笔记 N 条」逐条显示子笔记正文（纯文本渲染，超 240 字折叠、可展开/收起） |
 
 ## 标注渲染（本轮新增）
 
@@ -81,9 +85,16 @@ Zotero 的集合成员**包含父条目的子附件与笔记**（实测某分类
 
 **为什么 PDF 要经 Host 中转**：Zotero 的 `/items/<key>/file/view` 只会 302 到 `file:///…`，浏览器无法从 http 页面读取 `file://`；因此由 Host 解析附件真实路径（Host 侧实测：`file/view/url` → `%USERPROFILE%\Zotero\storage\<key>\<file>.pdf`）并流式回传。
 
-## 标注创建（高亮）
+## 标注创建与删除
 
-`zotero_highlight` 能在 PDF 上创建**黄色高亮**并附评论。面板里的 PDF 是 canvas 自绘、没有文本层，做不了"选中文字算坐标"，所以定位全部放在 **Host 侧**：直接读附件本地文件，用 `page.getTextContent()` 拿到每个 text item 的 `transform`（PDF 用户空间、左下原点）。
+有两条创建路径，几何口径一致：
+
+| 路径 | 谁定位 | 说明 |
+|---|---|---|
+| `zotero_highlight`（模型工具） | **Host 侧**读 PDF 原文件，`page.getTextContent()` 取 `transform` | 模型给「文字片段」，Host 负责找到并换算坐标；默认 dry-run |
+| 面板 / DSH 预览里**手动划词** | **浏览器侧**，pdf.js 文本层 | 用户拖选 → 用 `viewport.transform` 的逆矩阵换回 PDF 用户空间 → `annotation.create` 路由 |
+
+> 0.4.0 之前面板里的 PDF 是纯 canvas、没有文本层，只能由模型侧建高亮；现在阅读器叠了一层透明文本层（span 按 `viewport.transform` 定位、按 `it.width` 做 `scaleX` 对齐），用户可以直接选中文字。
 
 几何公式不是猜的，是用库里 **12 条真实标注**的 `annotationPosition` 反解标定出来的：
 
@@ -92,17 +103,72 @@ fs   = hypot(transform[2], transform[3])        // 该 text item 的字号
 rect = [x1, baseline − 0.25·fs, x2, baseline + 1.0·fs]     // Zotero 用 1.25em 行盒
 ```
 
-8 条正文样本（字号 6.376 / 7.173 / 7.97）与该式**逐位吻合**，下探 0.2500、上伸 1.0000，精确到小数点后四位。
+8 条正文样本（字号 6.376 / 7.173 / 7.97）与该式**逐位吻合**，下探 0.2500、上伸 1.0000，精确到小数点后四位。手动划词用的是同一套 1.25em 行盒。
 
 | 环节 | 做法 |
 |---|---|
 | 定位 | 按基线（2pt 容差）归行 → 对行文本与目标文本做同一套归一化（折叠空白 + 小写）→ `indexOf` → 映射回原串区间，取相交 text item 的并集 |
 | **歧义** | 命中 ≥2 处**不猜**：不写入，返回候选（页码 + 一行上下文），由模型补 `pageIndex`（同页仍重复再加 `occurrence`）重跑 |
-| 文字来源 | `annotationText` 取 PDF **原串切片**，不接受模型改写；跨行片段直接报错 |
-| 门控 | 默认 `dry-run`（只定位、不发请求）；`dryRun:false` 才依次过**写回开关**与**Zotero 授权** |
+| 文字来源 | `annotationText` 取 PDF **原串切片**，不接受模型改写；跨行片段直接报错。手动划词同理——存的是 PDF 里真实存在的文字 |
+| 门控 | 默认 `dry-run`（只定位、不发请求）；`dryRun:false` 才依次过**写回开关**与**Zotero 授权**。面板划词不走 dry-run，但同样受写回开关约束，且必须用户主动点「保存」 |
+
+### 删除标注（`annotation.delete`）
+
+面板里点开任意高亮 → 小窗底部**红色「删除」** → 二次确认 → 移入 **Zotero 回收站**。
+
+| 决策 | 原因 |
+|---|---|
+| **只做回收站，不做永久删除** | `POST /items [{key, version, deleted:1}]` 是实测可用的；`DELETE /items/<key>` 永久删除只有文档、未实测，不能当默认路径。删错了在 Zotero 里能恢复 |
+| 写入前校验 `data.itemType === 'annotation'` | 防误删：就算 key 传错，也不可能把整篇文献删掉 |
+| 必须二次确认 | 破坏性操作，且文案直接写明「可以在回收站里恢复」 |
 
 > ⚠️ **为什么必须"不猜"**：实测一篇 13 页论文里同一串文字出现 **12 次**，第 1 处是页眉残片，真正的节标题在第 2 页。早期版本取第一处就返回，高亮会静默标到错误位置——界面上"有高亮"，很难发现。
-> ⚠️ **payload 必须带 `itemType: "annotation"`**：缺了它 Zotero 直接回 `400 itemType property not provided`（第一次真写时四条全被拒）。完整字段形状、sortIndex 规则与已知几何偏差见 [docs/annotation-creation.md](docs/annotation-creation.md)。
+> ⚠️ **payload 必须带 `itemType: "annotation"`**：缺了它 Zotero 直接回 `400 itemType property not provided`（第一次真写时四条全被拒）。另注意颜色字段是 **`annotationColor`** 不是 `color`，写错会报 `'extra' is not a valid field`。完整字段形状、sortIndex 规则与已知几何偏差见 [docs/annotation-creation.md](docs/annotation-creation.md)。
+
+## 笔记正文
+
+展开条目后「笔记 N 条」逐条显示子笔记正文：纯文本渲染（不走 `innerHTML`）、超过 240 字折叠并可展开/收起、被截断时给出提示。正文来自既有 `notes` 路由，本插件不解析 HTML 结构。
+
+## DSH 预览接管（`registerFileViewer`）
+
+面板里有两个 PDF 表面，**它们不是同一套渲染**：
+
+| 表面 | 谁渲染 | 能否划词 |
+|---|---|---|
+| 「打开」（面板内） | 本插件的 pdf.js 阅读器 | ✅ |
+| 「DSH 预览」 | `dsh-better-sidebar` 的 editor tab | 0.4.0 起 ✅ |
+
+「DSH 预览」原来用 **object URL + 浏览器原生 PDF 阅读器**——那是一个独立的不透明文档，插件既不能注入文本层，也拿不到选区，所以**不可能**在那里加高亮。
+
+解法是用 `dsh-better-sidebar` 的 `registerFileViewer` 扩展点接管 `.pdf`：
+
+```js
+service.registerFileViewer({
+  id: 'dsh-zotero:pdf', exts: ['pdf'], priority: 1,   // 内置用 0，1 即可胜出
+  fetchStrategy: 'mediaUrl',
+  component: (props) => h(ZoteroPdfView, props),
+});
+```
+
+接管后两个表面复用同一个 `PdfPage`，行为一致。非 Zotero 附件（从文件树直接打开的 PDF）自动降级为**只读**，不会出现「保存必然失败」的浮层。
+
+> 高亮写回必须知道**附件 key**，而 tab 只拿到本地路径 → Host 侧维护一个「路径 → 附件 key」内存索引（`createPathIndex`，上限 500 条，路径归一化大小写与斜杠），`fileinfo` 顺手记录，`attachment.byPath` 纯内存反查。
+> 不想用时可以在 `dsh-better-sidebar` 设置页里单独关掉这个 viewer（每个注册的 viewer 都有开关），原生阅读器会回来。
+
+## 写授权与自愈（0.4.2）
+
+写密钥存在 DSH 凭据服务里（记录键 `dsh-zotero/local-api-key`）。**0.4.1 及以前有个坑**：插件激活时凭据服务可能还没就绪，`load()` 读不到就再没有第二次机会，内存里永远是空 key——表现为重启后 `zotero_status` 显示「写授权：未授权」，而**建高亮能用、删高亮必挂**（因为 `annotation.create` 每次都会先 `authorize()` 顺手把 key 塞进内存，`annotation.delete` 不会）。
+
+现在的四层兜底，从便宜到贵：
+
+| 层 | 做法 |
+|---|---|
+| 1 | 启动时 `load()` 退避重试 4 次（凭据服务可能比插件晚就绪） |
+| 2 | 写操作前 `keyStore.ensureLoaded()` 再要一次（多数情况到此为止，**不弹框**） |
+| 3 | 撞到 401 时 `withAuthRetry` 重新申请授权并重试一次 |
+| 4 | 仍然没有 → 向 Zotero 申请授权，**Zotero 会弹确认框，请点「Always Allow」** |
+
+> 第 4 层的超时放宽到 **120 秒**（这是交互式请求，15 秒不够人点）。超时文案会直接告诉你「请在 Zotero 窗口里点 Always Allow」，而不是干巴巴一句「响应超时」。
 
 ## 排障（面板）
 
@@ -282,17 +348,25 @@ Host 半注册同源路由（都带 loopback 信任围栏）：
 
 | 路由 | 用途 |
 |---|---|
-| `POST /dsh-zotero/api/<method>` | `status` · `write` · `collections` · `items` · `search` · `item` · `annotations` · `notes` · `fulltext` · `citation` · `bibtex` · `fileinfo` · `selection.get\|set\|clear` |
+| `POST /dsh-zotero/api/<method>` | `status` · `write` · `collections` · `items` · `search` · `item` · `annotations` · `notes` · `fulltext` · `citation` · `bibtex` · `fileinfo` · `attachment.byPath` · `annotation.create` · `annotation.delete` · `selection.get\|set\|clear` |
 | `GET /dsh-zotero/file?key=<附件key>` | 附件字节流（`Content-Type` 取自 Zotero，支持 `Range`/`206`） |
 | `GET /dsh-zotero/vendor/<pdfjs 相对路径>` | pdf.js 资源（白名单：`build/`、`cmaps/`、`standard_fonts/`、`wasm/`；逐段校验，拒绝 `..` 与白名单外路径） |
 
 `POST /api/*` 响应信封：`{ ok: true, value }` 或 `{ ok: false, error: { code, message } }`。`status` 里含 `pdfjs: { available, version }`，面板据此决定自绘还是回退原生阅读器。
 
+写类路由的入参：
+
+| 路由 | 入参 | 说明 |
+|---|---|---|
+| `annotation.create` | `{ attachmentKey, text, comment?, color?, pageIndex, pageLabel?, pageHeight, rects }` | 由浏览器侧算好坐标后提交；受 `allowWrite` 门控 |
+| `annotation.delete` | `{ key }` | 只移入回收站（`deleted:1`），可恢复 |
+| `attachment.byPath` | `{ path }` | 本地路径 → 附件 key，纯内存索引，不访问 Zotero |
+
 ## 安全边界（Phase 0 教训，务必保留）
 
 - 变更前**必须单条直读**目标对象；**不信任**列表/聚合结果（本地 API 的 `Total-Results` 实测会不一致）。
-- **绝不自动恢复/删除用户的 Zotero 对象**；本插件不做任何 Zotero 侧删除。
-- 写回只有**两条通道**：子笔记（`zotero_create_note`）与高亮/下划线标注（`zotero_highlight`）。两者都受 `allowWrite`（面板写回开关）、Zotero 授权与工具默认 dry-run 三重门控；面板自身不写。
+- **绝不自动恢复/删除用户的 Zotero 对象**。0.4.1 起唯一的删除能力是用户显式触发的 `annotation.delete`：范围限定在**用户点开并确认的那一条**，只做**移入回收站**（可恢复），不做永久删除，且写入前校验 `itemType === 'annotation'`——禁止按标签/条件扫库兜底删除。
+- 写回通道：子笔记（`zotero_create_note`）、高亮/下划线标注（`zotero_highlight` 与面板划词）、标注删除（面板按钮）。创建类工具默认 dry-run，且都受 `allowWrite`（面板写回开关）与 Zotero 授权门控。
 - 密钥只存凭据服务；日志与工具输出从不回显密钥。
 
 ## 自测（本仓库内可跑）
@@ -301,15 +375,19 @@ Host 半注册同源路由（都带 loopback 信任围栏）：
 node --check index.js client.js lib\*.js                                # 语法检查
 node -e "import('./index.js').then(m=>console.log(m.name, m.inject))"   # 装载自检
 node spike\toggle-test.mjs                                              # 写回开关（离线，假 configEditor）
-node spike\key-store-test.mjs                                           # 凭据记录键格式（防"下次启动炸"）
+node spike\key-store-test.mjs                                           # 凭据记录键格式 + ensureLoaded 补读
 node spike\annotation-test.mjs                                          # 高亮几何 + payload 结构
+node spike\annotation-route-test.mjs                                    # annotation.create 入参校验与组装
+node spike\annotation-delete-test.mjs                                   # 删除只允许 annotation、body 形状
+node spike\attachment-bypath-test.mjs                                   # 本地路径 → 附件 key 的内存索引
 node spike\find-pdf-test.mjs                                            # 查找原文的客户端契约（假 Zotero 服务器）
-npm pack --dry-run                                                      # 打包清单（应 20 个文件，不含 node_modules/spike/docs）
+npm pack --dry-run                                                      # 打包清单（应 22 个文件，不含 node_modules/spike/docs）
 ```
 
 - `spike/toggle-test.mjs` 全离线：用假的 `configEditor` 覆盖「改运行时 settings + 经 Loader 落 profile 补丁」两条路径。
-- `spike/key-store-test.mjs` 全离线：断言凭据记录键符合 DSH 的 `<scope>/<id>` grammar，并把旧值 `zotero-local-api-key` 钉成「必须被拒」。对应 2026-11-04 的整机启动事故。
+- `spike/key-store-test.mjs` 全离线：断言凭据记录键符合 DSH 的 `<scope>/<id>` grammar，并把旧值 `zotero-local-api-key` 钉成「必须被拒」。对应 2026-11-04 的整机启动事故；另含 `ensureLoaded()` 的补读回归（对应 0.4.2 修的重启后 401）。
 - `spike/annotation-test.mjs` 的**几何断言**需要真值文件 `spike/cases.local.json`——**不入库**，因为它含真实附件 key 与论文原文句子。缺该文件时自动跳过几何部分，只跑 payload 结构断言；准备方法见 `spike/cases.example.json`。
+- `spike/annotation-delete-test.mjs` 全离线：`buildTrashBody` 必须拒绝非 annotation 条目（防误删整篇文献），并校验 body 形状为 `[{key, version, deleted:1}]`。
 - `spike/find-pdf-test.mjs` 全离线：起一个假 Zotero 服务器，断言 `zotero_find_pdf` 的请求形状，以及「桥接插件没装」「条目不存在」「没找到文件」「下载失败」四种情况必须区分得开。
 
 > 其余开发期套件（工具注册契约 / Host 路由 / Client 渲染）不随本仓库分发。`spike/` 与 `docs/` 也不进 npm 包（`files` 白名单不含它们）。
